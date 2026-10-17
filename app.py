@@ -48,7 +48,7 @@ class VibeFit(ShowBase):
         self.accept("escape", self.userExit)
         self.accept("f11", self.toggle_fullscreen)
         self.accept("aspectRatioChanged", self._on_aspect)
-        for k in ("arrow_left", "arrow_right", "arrow_up", "arrow_down", "w", "s"):
+        for k in ("arrow_left", "arrow_right", "arrow_up", "arrow_down", "w", "s", "space"):
             self.accept(k, self.keys.add, [k])
             self.accept(k + "-up", self.keys.discard, [k])
         self.sound.music("menu")
@@ -242,12 +242,12 @@ class VibeFit(ShowBase):
             if d != self.difficulty:
                 b["frameColor"] = (0.45, 0.6, 0.55, 1)
         for i, cls in enumerate(GAMES):
-            y = 0.4 - i * 0.2
-            self.button(cls.title, (-0.35, 0, y), lambda c=cls: self.start_game(c), scale=0.065, width=9)
+            y = 0.44 - i * 0.135
+            self.button(cls.title, (-0.35, 0, y), lambda c=cls: self.start_game(c), scale=0.06, width=9)
             medal = self.store.best_medal(self.profile["id"], cls.key, self.difficulty)
             lab = self.label(self.MEDAL_NAMES[medal] or "-", (0.85, 0, y), 0.06)
             lab["text_fg"] = self.MEDAL_COLORS[medal]
-        self.label("Input: " + ("tastiera (frecce, W/S = piu'/meno peso)" if self.use_keyboard else "board"),
+        self.label("Input: " + ("tastiera (frecce, W/S = peso, SPAZIO = volo)" if self.use_keyboard else "board"),
                    (0, 0, -0.75), 0.05)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
 
@@ -264,7 +264,10 @@ class VibeFit(ShowBase):
             tw = 1.0 + 0.2 * ("w" in self.keys) - 0.2 * ("s" in self.keys)  # W/S: piu'/meno peso
             self.kb[0] += (tx - self.kb[0]) * min(1.0, 6 * dt)
             self.kb[1] += (ty - self.kb[1]) * min(1.0, 6 * dt)
-            self.kb[2] += (tw - self.kb[2]) * min(1.0, 10 * dt)
+            if "space" in self.keys:  # SPAZIO: in volo (nessun peso), per il salto
+                self.kb[2] = 0.05
+            else:
+                self.kb[2] += (tw - self.kb[2]) * min(1.0, 10 * dt)
             i.x, i.y, i.total, i.present = self.kb[0], self.kb[1], 70.0 * self.kb[2], True
         elif self.board.connected:
             kg = [r - o for r, o in zip(self.board.kg, self.offsets)]
