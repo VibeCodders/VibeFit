@@ -105,7 +105,7 @@ def main():
             print(f"Trovata: {d.szName} {fmt(d.Address)}")
             # SYNC: PIN = indirizzo del PC in little-endian; in alternativa indirizzo della board
             for label, addr in (("PC", rinfo.address), ("board", d.Address)):
-                pin = (ctypes.c_ubyte * 6)(*addr.to_bytes(6, "little"))
+                pin = (ctypes.c_wchar * 6)(*[chr(b) for b in addr.to_bytes(6, "little")])
                 res = bt.BluetoothAuthenticateDevice(None, radio, ctypes.byref(d), ctypes.byref(pin), 6)
                 print(f"  PIN {label}: codice {res}")
                 if res == 0:
