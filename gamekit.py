@@ -38,12 +38,14 @@ def make_penguin(parent, loader):
     blob(p, loader, (0.5, 0.42, 0.65), dark, (0, 0, 0.7))
     blob(p, loader, (0.38, 0.3, 0.52), white, (0, 0.17, 0.66))
     blob(p, loader, (0.36, 0.34, 0.34), dark, (0, 0.02, 1.3))
+    feet, flippers = {}, {}
     for s in (-1, 1):
         blob(p, loader, (0.09, 0.07, 0.09), white, (s * 0.14, 0.28, 1.38))
         blob(p, loader, (0.04, 0.04, 0.04), dark, (s * 0.14, 0.34, 1.38))
-        blob(p, loader, (0.1, 0.25, 0.4), dark, (s * 0.52, 0, 0.72), (0, 0, s * 25))
-        box(p, loader, (0.22, 0.4, 0.08), orange, (s * 0.2, 0.18, 0.04))
+        flippers[s] = blob(p, loader, (0.1, 0.25, 0.4), dark, (s * 0.52, 0, 0.72), (0, 0, s * 25))
+        feet[s] = box(p, loader, (0.22, 0.4, 0.08), orange, (s * 0.2, 0.18, 0.04))
     blob(p, loader, (0.1, 0.2, 0.07), orange, (0, 0.34, 1.25))
+    p.setPythonTag("parts", {"feet": feet, "flippers": flippers})  # per le pose (yoga)
     return p
 
 
