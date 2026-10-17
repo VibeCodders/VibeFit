@@ -6,7 +6,8 @@ import time
 
 from direct.gui.DirectGui import DirectButton, DirectEntry, DirectFrame, DirectLabel
 from direct.showbase.ShowBase import ShowBase
-from panda3d.core import (AmbientLight, DirectionalLight, LineSegs, TextNode, loadPrcFileData)
+from panda3d.core import (AmbientLight, DirectionalLight, LineSegs, OrthographicLens, TextNode,
+                          loadPrcFileData)
 
 from balance_board import BOARD_LENGTH_MM, BOARD_WIDTH_MM, BalanceBoard
 from db import Store
@@ -40,8 +41,13 @@ class VibeFit(ShowBase):
     def _build_scene(self):
         self.scene = self.render.attachNewNode("scene")
         self.scene.hide()
-        self.camera.setPos(0, -9, 8)
-        self.camera.lookAt(0, 0, 0)
+        # vista dall'alto, ortografica: la board appare piatta e frontale
+        self.camera.setPos(0, 0, 20)
+        self.camera.setHpr(0, -90, 0)
+        lens = OrthographicLens()
+        lens.setFilmSize(8.0, 8.0 / self.getAspectRatio())
+        lens.setNearFar(1, 100)
+        self.cam.node().setLens(lens)
         light = DirectionalLight("sun")
         light.setColor((0.9, 0.9, 0.85, 1))
         ln = self.render.attachNewNode(light)
@@ -57,8 +63,16 @@ class VibeFit(ShowBase):
             box.reparentTo(wrapper)
             box.setScale(*dims)
             box.setPos(-dims[0] / 2, -dims[1] / 2, 0)
+            box.setTextureOff(1)
             box.setColor(*color)
             wrapper.setPos(0, 0, z)
+        guide = LineSegs()  # croce al centro della board
+        guide.setColor(0.6, 0.6, 0.65, 1)
+        guide.moveTo(-w / 2, 0, 0.21)
+        guide.drawTo(w / 2, 0, 0.21)
+        guide.moveTo(0, -l / 2, 0.21)
+        guide.drawTo(0, l / 2, 0.21)
+        self.scene.attachNewNode(guide.create())
         self.marker = self.loader.loadModel("models/misc/sphere")
         self.marker.reparentTo(self.scene)
         self.marker.setScale(0.25)
@@ -69,7 +83,7 @@ class VibeFit(ShowBase):
         self.target.setScale(0.35)
         self.target.setColor(0.2, 0.8, 0.3, 0.6)
         self.target.setTransparency(True)
-        self.target.setZ(0.15)
+        self.target.setZ(0.0)  # sotto il marker, cosi' la pallina rossa resta visibile
 
     # ---------- utilita' GUI ----------
     def _screen(self, title=None):
@@ -175,7 +189,7 @@ class VibeFit(ShowBase):
         self._screen("Pesata")
         self.scene.show()
         self.msg = self.label("", (0, 0, 0.65), 0.08)
-        self.big = self.label("", (0, 0, -0.55), 0.18)
+        self.big = self.label("", (0, 0, -0.7), 0.18)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
         self.phase = "empty"
         self.empty_since = None
@@ -250,7 +264,7 @@ class VibeFit(ShowBase):
         self._screen("Test di equilibrio")
         self.scene.show()
         self.msg = self.label("", (0, 0, 0.65), 0.08)
-        self.big = self.label("", (0, 0, -0.55), 0.18)
+        self.big = self.label("", (0, 0, -0.7), 0.18)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
         self.phase = "step" if self.tared else "empty"
         self.empty_since = None
@@ -317,7 +331,7 @@ class VibeFit(ShowBase):
             t = now - self.t0
             tx = 80 * math.sin(2 * math.pi * t / 26)
             ty = 45 * math.sin(2 * math.pi * t / 17 + 1.0)
-            self.target.setPos(tx * SCALE, ty * SCALE, 0.15)
+            self.target.setPos(tx * SCALE, ty * SCALE, 0.0)
             self.err_follow.append(math.hypot(x - tx, y - ty))
             left = self.FOLLOW_SECS - t
             self.msg["text"] = "Segui il bersaglio verde"
