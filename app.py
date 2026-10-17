@@ -247,7 +247,8 @@ class VibeFit(ShowBase):
             medal = self.store.best_medal(self.profile["id"], cls.key, self.difficulty)
             lab = self.label(self.MEDAL_NAMES[medal] or "-", (0.85, 0, y), 0.06)
             lab["text_fg"] = self.MEDAL_COLORS[medal]
-        self.label("Input: " + ("tastiera (frecce)" if self.use_keyboard else "board"), (0, 0, -0.75), 0.05)
+        self.label("Input: " + ("tastiera (frecce, W/S = piu'/meno peso)" if self.use_keyboard else "board"),
+                   (0, 0, -0.75), 0.05)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
 
     def _set_difficulty(self, d):
