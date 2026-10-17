@@ -23,6 +23,14 @@ class Store:
                 ts REAL NOT NULL,
                 kg REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS balance_tests (
+                id INTEGER PRIMARY KEY,
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                ts REAL NOT NULL,
+                score_still REAL NOT NULL,
+                score_follow REAL NOT NULL,
+                balance_age REAL NOT NULL
+            );
         """)
         self.conn.execute("PRAGMA foreign_keys = ON")
 
@@ -43,6 +51,17 @@ class Store:
         self.conn.execute("INSERT INTO weights (profile_id, ts, kg) VALUES (?, ?, ?)",
                           (pid, time.time(), kg))
         self.conn.commit()
+
+    def add_balance_test(self, pid, score_still, score_follow, balance_age):
+        self.conn.execute(
+            "INSERT INTO balance_tests (profile_id, ts, score_still, score_follow, balance_age)"
+            " VALUES (?, ?, ?, ?, ?)", (pid, time.time(), score_still, score_follow, balance_age))
+        self.conn.commit()
+
+    def balance_tests(self, pid):
+        return self.conn.execute(
+            "SELECT ts, score_still, score_follow, balance_age FROM balance_tests"
+            " WHERE profile_id = ? ORDER BY ts", (pid,)).fetchall()
 
     def weights(self, pid):
         return self.conn.execute(

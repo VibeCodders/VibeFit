@@ -1,6 +1,7 @@
 """VibeFit: menu, profili, pesata e storico."""
 import collections
 import datetime
+import math
 import time
 
 from direct.gui.DirectGui import DirectButton, DirectEntry, DirectFrame, DirectLabel
@@ -28,6 +29,7 @@ class VibeFit(ShowBase):
         self.board = BalanceBoard()
         self.board_error = None
         self.offsets = [0.0] * 4
+        self.tared = False
         self.root = None
         self.task = None
         self._build_scene()
@@ -62,6 +64,12 @@ class VibeFit(ShowBase):
         self.marker.setScale(0.25)
         self.marker.setColor(0.9, 0.2, 0.25, 1)
         self.marker.setZ(0.2)
+        self.target = self.loader.loadModel("models/misc/sphere")
+        self.target.reparentTo(self.scene)
+        self.target.setScale(0.35)
+        self.target.setColor(0.2, 0.8, 0.3, 0.6)
+        self.target.setTransparency(True)
+        self.target.setZ(0.15)
 
     # ---------- utilita' GUI ----------
     def _screen(self, title=None):
@@ -71,6 +79,7 @@ class VibeFit(ShowBase):
         if self.root:
             self.root.destroy()
         self.scene.hide()
+        self.target.hide()
         self.root = DirectFrame(frameColor=(0, 0, 0, 0))
         if title:
             self.label(title, (0, 0, 0.8), 0.12)
@@ -138,11 +147,13 @@ class VibeFit(ShowBase):
     # ---------- menu ----------
     def show_menu(self):
         self._screen(f"Ciao, {self.profile['name']}!")
-        self.button("Pesati", (0, 0, 0.45), self.show_weigh, width=8)
-        self.button("Storico", (0, 0, 0.2), self.show_history, width=8)
-        self.button("Cambia profilo", (0, 0, -0.05), self.show_profiles, width=8)
-        self.button("Esci", (0, 0, -0.3), self.userExit, width=8)
-        self.status = self.label("", (0, 0, -0.6), 0.055)
+        self.button("Pesati", (0, 0, 0.5), self.show_weigh, width=8)
+        self.button("Test di equilibrio", (0, 0, 0.3), self.show_balance, width=8)
+        self.button("Storico peso", (0, 0, 0.1), self.show_history, width=8)
+        self.button("Storico equilibrio", (0, 0, -0.1), self.show_balance_history, width=8)
+        self.button("Cambia profilo", (0, 0, -0.3), self.show_profiles, width=8)
+        self.button("Esci", (0, 0, -0.5), self.userExit, width=8)
+        self.status = self.label("", (0, 0, -0.75), 0.055)
 
     def ensure_board(self):
         if self.board.connected:
@@ -171,6 +182,14 @@ class VibeFit(ShowBase):
         self.samples = collections.deque()
         self.task = self.taskMgr.add(self._weigh_task, "weigh")
 
+    def _cog(self, kg, total):
+        if total <= 2.0:
+            return 0.0, 0.0
+        tr, br, tl, bl = kg
+        x = ((tr + br) - (tl + bl)) / total * (BOARD_WIDTH_MM / 2)
+        y = ((tl + tr) - (bl + br)) / total * (BOARD_LENGTH_MM / 2)
+        return x, y
+
     def _weigh_task(self, task):
         now = time.time()
         raw = self.board.kg
@@ -185,6 +204,7 @@ class VibeFit(ShowBase):
                 self.empty_since = now
             elif now - self.empty_since > 1.5:
                 self.offsets = list(raw)
+                self.tared = True
                 self.phase = "step"
         else:
             kg = [r - o for r, o in zip(raw, self.offsets)]
@@ -213,12 +233,123 @@ class VibeFit(ShowBase):
         return task.cont
 
     def _move_marker(self, kg, total):
-        x = y = 0.0
-        if total > 2.0:
-            tr, br, tl, bl = kg
-            x = ((tr + br) - (tl + bl)) / total * (BOARD_WIDTH_MM / 2)
-            y = ((tl + tr) - (bl + br)) / total * (BOARD_LENGTH_MM / 2)
+        x, y = self._cog(kg, total)
         self.marker.setPos(x * SCALE, y * SCALE, 0.2)
+        return x, y
+
+    # ---------- test di equilibrio ----------
+    STILL_SECS = 20.0
+    FOLLOW_SECS = 20.0
+
+    def show_balance(self):
+        if not self.ensure_board():
+            self.show_menu()
+            self.status["text"] = ("Board non raggiunta. Accendila (tasto power) e riprova.\n"
+                                   f"({self.board_error})")
+            return
+        self._screen("Test di equilibrio")
+        self.scene.show()
+        self.msg = self.label("", (0, 0, 0.65), 0.08)
+        self.big = self.label("", (0, 0, -0.55), 0.18)
+        self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
+        self.phase = "step" if self.tared else "empty"
+        self.empty_since = None
+        self.t0 = None
+        self.pos_still = []
+        self.err_follow = []
+        self.task = self.taskMgr.add(self._balance_task, "balance")
+
+    def _balance_task(self, task):
+        now = time.time()
+        raw = self.board.kg
+        if self.phase == "empty":
+            self.msg["text"] = "Non salire ancora: sto azzerando la board..."
+            if abs(sum(raw)) > 4.0:
+                self.msg["text"] = "Scendi dalla board"
+                self.empty_since = None
+            elif self.empty_since is None:
+                self.empty_since = now
+            elif now - self.empty_since > 1.5:
+                self.offsets = list(raw)
+                self.tared = True
+                self.phase = "step"
+            return task.cont
+
+        kg = [r - o for r, o in zip(raw, self.offsets)]
+        total = sum(kg)
+        x, y = self._cog(kg, total)
+        self.marker.setPos(x * SCALE, y * SCALE, 0.2)
+
+        if total < 10 and self.phase != "step":  # sceso dalla board: ricomincia
+            self.phase = "step"
+            self.target.hide()
+        if self.phase == "step":
+            self.msg["text"] = "Sali sulla board a piedi uniti"
+            self.big["text"] = ""
+            if total > 10:
+                self.phase, self.t0 = "settle", now
+        elif self.phase == "settle":
+            self.msg["text"] = "Bene, resta fermo..."
+            if now - self.t0 > 1.5:
+                self.phase, self.t0 = "count", now
+        elif self.phase == "count":
+            left = 3 - int(now - self.t0)
+            self.msg["text"] = "Parte il test: stai fermo, guarda avanti"
+            self.big["text"] = str(left)
+            if now - self.t0 >= 3:
+                self.phase, self.t0 = "still", now
+                self.pos_still = []
+        elif self.phase == "still":
+            self.pos_still.append((x, y))
+            left = self.STILL_SECS - (now - self.t0)
+            self.msg["text"] = "Stai fermo il piu' possibile"
+            self.big["text"] = f"{max(left, 0):.0f}"
+            if left <= 0:
+                self.phase, self.t0 = "intro", now
+        elif self.phase == "intro":
+            self.msg["text"] = "Ora segui il bersaglio verde col baricentro (pallina rossa)"
+            self.big["text"] = ""
+            if now - self.t0 > 4:
+                self.phase, self.t0 = "follow", now
+                self.err_follow = []
+                self.target.show()
+        elif self.phase == "follow":
+            t = now - self.t0
+            tx = 80 * math.sin(2 * math.pi * t / 26)
+            ty = 45 * math.sin(2 * math.pi * t / 17 + 1.0)
+            self.target.setPos(tx * SCALE, ty * SCALE, 0.15)
+            self.err_follow.append(math.hypot(x - tx, y - ty))
+            left = self.FOLLOW_SECS - t
+            self.msg["text"] = "Segui il bersaglio verde"
+            self.big["text"] = f"{max(left, 0):.0f}"
+            if left <= 0:
+                self._finish_balance()
+                return task.done
+        return task.cont
+
+    @staticmethod
+    def _clamp(v, lo=0.0, hi=100.0):
+        return max(lo, min(hi, v))
+
+    def _finish_balance(self):
+        n = len(self.pos_still)
+        mx = sum(p[0] for p in self.pos_still) / n
+        my = sum(p[1] for p in self.pos_still) / n
+        rms = math.sqrt(sum((p[0] - mx) ** 2 + (p[1] - my) ** 2 for p in self.pos_still) / n)
+        score_still = self._clamp(100 - (rms - 5) * 2.5)
+        err = sum(self.err_follow) / len(self.err_follow)
+        score_follow = self._clamp(100 - (err - 15) * 100 / 45)
+        score = (score_still + score_follow) / 2
+        age = 20 + (100 - score) * 0.6
+        self.store.add_balance_test(self.profile["id"], score_still, score_follow, age)
+        real_age = datetime.date.today().year - self.profile["birth_year"]
+        self._screen("Risultato equilibrio")
+        self.label(f"Eta' d'equilibrio: {age:.0f} anni", (0, 0, 0.5), 0.13)
+        self.label(f"(la tua eta': {real_age})", (0, 0, 0.33), 0.06)
+        self.label(f"Fermo: {score_still:.0f}/100   (oscillazione {rms:.1f} mm)", (0, 0, 0.1), 0.075)
+        self.label(f"Bersaglio: {score_follow:.0f}/100   (errore medio {err:.1f} mm)", (0, 0, -0.05), 0.075)
+        self.button("Storico", (-0.45, 0, -0.4), self.show_balance_history, width=5)
+        self.button("Menu", (0.45, 0, -0.4), self.show_menu, width=5)
 
     def _finish_weigh(self, kg):
         self.store.add_weight(self.profile["id"], kg)
@@ -240,20 +371,28 @@ class VibeFit(ShowBase):
 
     # ---------- storico ----------
     def show_history(self):
-        self._screen("Storico peso")
-        rows = self.store.weights(self.profile["id"])
+        rows = [{"ts": r["ts"], "v": r["kg"]} for r in self.store.weights(self.profile["id"])]
+        self._graph("Storico peso", rows, "kg", "Ancora nessuna pesata.", "pesate")
+
+    def show_balance_history(self):
+        rows = [{"ts": r["ts"], "v": r["balance_age"]}
+                for r in self.store.balance_tests(self.profile["id"])]
+        self._graph("Storico equilibrio", rows, "anni", "Ancora nessun test.", "test", 0)
+
+    def _graph(self, title, rows, unit, empty_msg, noun, decimals=1):
+        self._screen(title)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
         if not rows:
-            self.label("Ancora nessuna pesata.", (0, 0, 0.2))
+            self.label(empty_msg, (0, 0, 0.2))
             return
-        lo = min(r["kg"] for r in rows) - 1
-        hi = max(r["kg"] for r in rows) + 1
+        lo = min(r["v"] for r in rows) - 1
+        hi = max(r["v"] for r in rows) + 1
         t0, t1 = rows[0]["ts"], rows[-1]["ts"]
         X0, X1, Y0, Y1 = -1.1, 1.1, -0.5, 0.55
 
         def pt(r):
             fx = 0.5 if t1 == t0 else (r["ts"] - t0) / (t1 - t0)
-            return X0 + fx * (X1 - X0), Y0 + (r["kg"] - lo) / (hi - lo) * (Y1 - Y0)
+            return X0 + fx * (X1 - X0), Y0 + (r["v"] - lo) / (hi - lo) * (Y1 - Y0)
 
         axes = LineSegs()
         axes.setColor(*INK)
@@ -268,11 +407,12 @@ class VibeFit(ShowBase):
             x, y = pt(r)
             (line.moveTo if i == 0 else line.drawTo)(x, 0, y)
         self.root.attachNewNode(line.create())
-        self.label(f"{hi:.0f} kg", (X0 - 0.03, 0, Y1), 0.05, TextNode.ARight)
-        self.label(f"{lo:.0f} kg", (X0 - 0.03, 0, Y0), 0.05, TextNode.ARight)
+        self.label(f"{hi:.0f} {unit}", (X0 - 0.03, 0, Y1), 0.05, TextNode.ARight)
+        self.label(f"{lo:.0f} {unit}", (X0 - 0.03, 0, Y0), 0.05, TextNode.ARight)
         last = rows[-1]
         when = datetime.datetime.fromtimestamp(last["ts"]).strftime("%d/%m/%Y %H:%M")
-        self.label(f"Ultima: {last['kg']:.1f} kg ({when}) - {len(rows)} pesate", (0, 0, -0.65), 0.06)
+        self.label(f"Ultimo: {last['v']:.{decimals}f} {unit} ({when}) - {len(rows)} {noun}",
+                   (0, 0, -0.65), 0.06)
 
     def destroy(self):
         self.board.close()
