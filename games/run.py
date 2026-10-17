@@ -3,7 +3,8 @@ import collections
 import math
 import random
 
-from gamekit import Game, blob, box, make_penguin, perspective
+from fx import Clouds, follow_shadow, make_shadow, sun
+from gamekit import Game, blob, box, make_penguin, perspective, set_flippers
 
 STEP_LEN = 1.1  # metri per passo (distanza di gioco)
 CHECKPOINT = 50.0
@@ -14,6 +15,7 @@ class Run(Game):
     title = "Corsa sul posto"
     blurb = "Alterna il peso da un piede all'altro, come se corressi sul posto"
     music = "action"
+    met = 7.0  # equivalente metabolico, per stimare le calorie
     duration = 45.0
 
     def setup(self):
@@ -25,6 +27,13 @@ class Run(Game):
         box(self.root, L, (3.0, 900, 0.03), (0.85, 0.75, 0.55), (0, 400, 0.01))  # sentiero
         self.peng = make_penguin(self.root, L)
         self.peng.setScale(0.8)
+        self.shadow = make_shadow(self.root, L, 0.7)
+        self.hills = [blob(self.root, L, (s * 2.2, s * 1.4, s * 0.9), (0.42, 0.7 + 0.05 * i, 0.4),
+                           (x, 320, -s * 0.3)) for i, (x, s) in enumerate(((-90, 18), (-30, 24), (40, 20), (100, 26)))]
+        self.sun = sun(self.root, L, (60, 360, 80), 12)
+        self.clouds = Clouds(self.root, L, 6, (-100, 100), 260, (30, 60))
+        self.arches = []
+        self.next_arch = CHECKPOINT
         self.py = 0.0
         self.speed = 0.0
         self.t = 0.0
@@ -40,6 +49,14 @@ class Run(Game):
 
     def _spawn(self, upto):
         L = self.loader
+        while self.next_arch < upto:  # arco di traguardo
+            a = self.root.attachNewNode("arch")
+            for x in (-2.2, 2.2):
+                box(a, L, (0.3, 0.3, 3.2), (0.95, 0.95, 0.95), (x, 0, 1.6))
+            box(a, L, (4.7, 0.3, 0.7), (0.9, 0.25, 0.3), (0, 0, 3.3))
+            a.setY(self.next_arch)
+            self.arches.append((self.next_arch, a))
+            self.next_arch += CHECKPOINT
         while self.next_tree < upto:
             x = random.choice((-1, 1)) * random.uniform(4, 11)
             t = self.root.attachNewNode("tree")
@@ -63,6 +80,10 @@ class Run(Game):
             self.score += 10
             self.step_times.append(self.t)
             self.app.sound.play("click")
+            self.fx.burst((self.peng.getX(), self.py - 0.2, 0.1), ((0.85, 0.75, 0.55),), 5, 1.2, 0.45, 0.1,
+                          up=0.9, gravity=-2)
+            set_flippers(self.peng, 100, side=new)  # un braccio avanti a ogni passo
+            set_flippers(self.peng, 15, side=-new)
         while self.step_times and self.t - self.step_times[0] > 2.0:
             self.step_times.popleft()
         cadence = len(self.step_times) / 2.0  # passi al secondo
@@ -74,6 +95,8 @@ class Run(Game):
             self.score += 50
             self.flash_t = self.t
             self.app.sound.play("ok")
+            self.fx.burst((0, self.py + 1, 2.5), ((1, 0.85, 0.2), (0.95, 0.3, 0.35), (1, 1, 1)), 24, 4.0, 1.0, 0.13,
+                          up=4.5)
         if self.t - self.flash_t < 1.2:
             self.hud_msg["text"] = "Traguardo! +50"
         elif self.t - self.last_step > 1.5:
@@ -88,7 +111,15 @@ class Run(Game):
         cam.setPos(0, self.py - 8, 4.2)
         cam.lookAt(0, self.py + 8, 0.8)
         self.ground.setY(self.py + 400)
+        follow_shadow(self.shadow, 0, self.py, bob * 3)
+        for h in self.hills:
+            h.setY(self.py + 320)
+        self.sun.setY(self.py + 360)
+        self.clouds.update(dt, self.py)
         for y, t in [(y, t) for y, t in self.trees if y < self.py - 12]:
             t.removeNode()
             self.trees.remove((y, t))
+        for y, a in [(y, a) for y, a in self.arches if y < self.py - 12]:
+            a.removeNode()
+            self.arches.remove((y, a))
         self._spawn(self.py + 80)

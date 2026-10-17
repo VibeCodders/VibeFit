@@ -1,5 +1,6 @@
 """Salto: salta piu' in alto che puoi. L'altezza si calcola dal tempo in cui non pesi sulla board."""
-from gamekit import Game, box, make_penguin, perspective
+from fx import Clouds, follow_shadow, make_shadow, sun
+from gamekit import Game, blob, box, make_penguin, perspective, set_flippers
 
 G = 9.81
 VISUAL_SCALE = 3.0  # il salto sullo schermo e' esagerato per renderlo leggibile
@@ -10,6 +11,7 @@ class Jump(Game):
     title = "Salto"
     blurb = "Salta piu' in alto che puoi, poi ricomponiti e salta ancora"
     music = "action"
+    met = 6.0  # equivalente metabolico, per stimare le calorie
     duration = 45.0
 
     def setup(self):
@@ -19,9 +21,20 @@ class Jump(Game):
         self.app.camera.setPos(0, -9, 3.2)
         self.app.camera.lookAt(0, 0, 2.0)
         L = self.loader
-        box(self.root, L, (40, 40, 0.2), (0.55, 0.8, 0.5), (0, 0, -0.1))
+        box(self.root, L, (60, 40, 0.2), (0.55, 0.8, 0.5), (0, 0, -0.1))
+        for x, s in ((-9, 4.0), (-3, 3.0), (7, 4.5), (13, 3.2)):  # colline
+            blob(self.root, L, (s * 1.8, s * 1.2, s * 0.8), (0.4, 0.72, 0.4), (x, 14, -s * 0.2))
+        self.clouds = Clouds(self.root, L, 5, (-25, 25), 20, (7, 12), (1.0, 1.8))
+        self.sun = sun(self.root, L, (8, 30, 14), 3.5)
+        self.shadow = make_shadow(self.root, L, 0.8)
         self.peng = make_penguin(self.root, L)
         self.peng.setH(180)
+        # righello: una tacca ogni 10 cm di salto (altezza esagerata sullo schermo)
+        box(self.root, L, (0.05, 0.05, 2.5), (0.3, 0.3, 0.35), (-3.0, 0, 1.25))
+        for k in range(1, 9):
+            long_tick = k % 5 == 0
+            box(self.root, L, (0.5 if long_tick else 0.3, 0.05, 0.04), (0.3, 0.3, 0.35),
+                (-3.0, 0, k * 0.1 * VISUAL_SCALE))
         self.record = box(self.root, L, (3.0, 0.05, 0.04), (0.9, 0.2, 0.25), (0, 0, -1.0))
         self.base = None
         self.cal_t = self.cal_sum = self.cal_n = 0
@@ -49,14 +62,20 @@ class Jump(Game):
                 self.app.sound.play("ok")
             return
         ratio = inp.total / self.base
+        self.clouds.update(dt)
         if not self.air:
             if ratio < 0.25:
                 self.air, self.air_t = True, 0.0
         else:
             self.air_t += dt
+            if self.anim_t is None:  # sollevamento immediato al distacco, poi il ritorno riproduce il salto vero
+                self.peng.setZ(min(self.air_t, 0.3) * 2.0)
             if ratio > 0.5:  # atterrato
                 self.air = False
                 t = self.air_t
+                if self.anim_t is None:
+                    self.peng.setZ(0)
+                    self.fx.burst((0, 0.3, 0.1), ((0.85, 0.8, 0.65),), 10, 2.2, 0.5, 0.12, up=0.8, gravity=-2)
                 if 0.15 <= t <= 0.9:
                     h = G * t * t / 8 * 100  # cm
                     if h >= self.min_h:
@@ -79,5 +98,9 @@ class Jump(Game):
             if u >= 1:
                 self.anim_t = None
                 self.peng.setZ(0)
+                self.fx.burst((0, 0.3, 0.1), ((0.85, 0.8, 0.65),), 10, 2.2, 0.5, 0.12, up=0.8, gravity=-2)
             else:
                 self.peng.setZ(4 * self.anim_H * u * (1 - u))
+        z = self.peng.getZ()
+        set_flippers(self.peng, 150 if z > 0.05 else 25)  # braccia in alto in volo
+        follow_shadow(self.shadow, 0, 0, z)

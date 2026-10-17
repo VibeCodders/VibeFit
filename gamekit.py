@@ -83,6 +83,7 @@ class Game:
     music = "action"
     duration = 45.0
     cheer = True  # ogni tanto la voce incoraggia
+    met = 3.5  # equivalente metabolico (stima calorie)
 
     def __init__(self, app, diff):
         self.cheer_t = random.uniform(10, 16)
@@ -96,7 +97,12 @@ class Game:
         self.hud_score = app.label("", (-1.25, 0, 0.88), 0.08, TextNode.ALeft)
         self.hud_time = app.label("", (1.25, 0, 0.88), 0.08, TextNode.ARight)
         self.hud_msg = app.label("", (0, 0, 0.72), 0.07)
+        from fx import Particles  # import qui: fx importa gamekit
+        self.fx = Particles(app.loader, self.root)
+        self.mini = app.mini_board() if self.show_mini and hasattr(app, "mini_board") else None
         self.setup()
+
+    show_mini = True  # piccola board con il pallino del baricentro, in basso a sinistra
 
     def setup(self):
         pass
@@ -111,6 +117,9 @@ class Game:
     def tick(self, dt, inp):
         self.time_left -= dt
         self.update(dt, inp)
+        self.fx.update(dt)
+        if self.mini:
+            self.mini(inp.x, inp.y)
         if self.cheer:
             self.cheer_t -= dt
             if self.cheer_t <= 0 and self.time_left > 5:

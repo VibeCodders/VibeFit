@@ -8,7 +8,9 @@ import sys
 
 from panda3d.core import Filename
 
-OUT = pathlib.Path(__file__).with_name("assets") / "voice"
+from paths import DATA_DIR
+
+OUT = DATA_DIR / "assets" / "voice"
 VOICE_NAME = "Microsoft Elsa Desktop"
 
 BASE = {

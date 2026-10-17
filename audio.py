@@ -9,7 +9,9 @@ import numpy as np
 from panda3d.core import Filename
 
 SR = 22050
-OUT = pathlib.Path(__file__).with_name("assets") / "audio"
+from paths import DATA_DIR
+
+OUT = DATA_DIR / "assets" / "audio"
 
 NOTE = {n: i for i, n in enumerate(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"])}
 

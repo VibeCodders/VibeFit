@@ -1,4 +1,7 @@
 """Yoga: prendi la posa e mantieni il baricentro dentro la zona verde per 10 secondi."""
+import random
+
+from fx import make_shadow, stones, sun
 from gamekit import Game, blob, box, make_penguin, perspective, set_flippers
 
 MM = 0.008  # 1 mm di baricentro = 0.008 unita' nel pannello
@@ -19,8 +22,10 @@ class Yoga(Game):
     title = "Yoga"
     blurb = "Prendi la posa e tieni il baricentro nella zona verde"
     music = "calm"
+    met = 2.5  # equivalente metabolico, per stimare le calorie
     duration = len(POSES) * (PREP + HOLD)
     cheer = False
+    show_mini = False  # ha gia' il suo pannello
 
     def setup(self):
         self.said_hold = False
@@ -31,7 +36,18 @@ class Yoga(Game):
         self.app.camera.setPos(1.5, -9.5, 2.2)
         self.app.camera.lookAt(1.5, 0, 1.6)
         L = self.loader
-        box(self.root, L, (40, 40, 0.2), (0.75, 0.9, 0.78), (0, 0, -0.1))
+        box(self.root, L, (60, 40, 0.2), (0.75, 0.9, 0.78), (0, 0, -0.1))
+        box(self.root, L, (3.2, 3.0, 0.05), (0.55, 0.42, 0.3), (0, 0.2, 0.03))  # stuoia
+        stones(self.root, L, 9, 8, 1)
+        for x in (-7.5, -6.7, -5.9, 8.8, 9.6):  # bambu'
+            h = random.uniform(5, 8)
+            box(self.root, L, (0.18, 0.18, h), (0.45, 0.7, 0.35), (x, 5, h / 2))
+            for k in range(1, int(h)):
+                box(self.root, L, (0.24, 0.24, 0.06), (0.3, 0.55, 0.25), (x, 5, k))
+        self.sun = sun(self.root, L, (-9, 30, 10), 2.4, (1.0, 0.9, 0.8))
+        self.shadow = make_shadow(self.root, L, 0.9)
+        self.shadow.setPos(0, 0, 0.06)
+        self.glow_t = 0.0
         self.banked = 0.0
         self.peng = make_penguin(self.root, L)
         self.peng.setH(180)
@@ -87,7 +103,10 @@ class Yoga(Game):
         i = min(int(elapsed // (PREP + HOLD)), len(POSES) - 1)
         t = elapsed - i * (PREP + HOLD)
         if i != self.pose_i:
-            self.banked += 250 * min(1.0, self.hold_in / HOLD)  # punti della posa appena finita
+            earned = 250 * min(1.0, self.hold_in / HOLD)  # punti della posa appena finita
+            self.banked += earned
+            if earned > 150:
+                self.fx.burst((0, 0, 2.0), ((1, 0.85, 0.3), (1, 1, 1), (0.6, 1, 0.7)), 22, 3.0, 1.0, 0.1, up=4.0)
             self.app.sound.play("ok")
             self._set_pose(i)
             self.app.voice.say(f"pose_{i}")
@@ -99,6 +118,11 @@ class Yoga(Game):
         inside = ((inp.x - self.target[0]) ** 2 + (inp.y - self.target[1]) ** 2) ** 0.5 < self.radius
         if inside:
             self.zone.setColor(0.3, 0.8, 0.4, 1)
+            self.glow_t -= dt
+            if self.glow_t <= 0 and t >= PREP:  # scintille di armonia attorno al pinguino
+                self.glow_t = 0.12
+                self.fx.emit((random.uniform(-0.9, 0.9), random.uniform(-0.3, 0.3), random.uniform(0.2, 1.8)),
+                             (0, 0, 0.8), (0.5, 1, 0.6), 1.0, 0.09, 0)
         else:
             self.zone.setColor(0.85, 0.75, 0.3, 1)
         if t < PREP:

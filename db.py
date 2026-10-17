@@ -4,7 +4,9 @@ import pathlib
 import sqlite3
 import time
 
-DB_PATH = pathlib.Path(__file__).with_name("vibefit.db")
+from paths import DATA_DIR
+
+DB_PATH = DATA_DIR / "vibefit.db"
 
 
 class Store:
@@ -50,8 +52,31 @@ class Store:
                 score_follow REAL NOT NULL,
                 balance_age REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         """)
         self.conn.execute("PRAGMA foreign_keys = ON")
+        self._migrate()
+
+    def _migrate(self):
+        """Aggiunge le colonne nate dopo la prima versione del database."""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(scores)")}
+        for name, ddl in (("seconds", "INTEGER NOT NULL DEFAULT 0"), ("kcal", "REAL NOT NULL DEFAULT 0")):
+            if name not in cols:
+                self.conn.execute(f"ALTER TABLE scores ADD COLUMN {name} {ddl}")
+        self.conn.commit()
+
+    # ---------- impostazioni ----------
+    def get_setting(self, key, default=None):
+        r = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return r["value"] if r else default
+
+    def set_setting(self, key, value):
+        self.conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                          "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, str(value)))
+        self.conn.commit()
 
     def list_profiles(self):
         return self.conn.execute("SELECT * FROM profiles ORDER BY name COLLATE NOCASE").fetchall()
@@ -71,11 +96,43 @@ class Store:
                           (pid, time.time(), kg))
         self.conn.commit()
 
-    def add_score(self, pid, game, difficulty, score, medal):
+    def add_score(self, pid, game, difficulty, score, medal, seconds=0, kcal=0.0):
         self.conn.execute(
-            "INSERT INTO scores (profile_id, game, difficulty, score, medal, ts) VALUES (?, ?, ?, ?, ?, ?)",
-            (pid, game, difficulty, score, medal, time.time()))
+            "INSERT INTO scores (profile_id, game, difficulty, score, medal, ts, seconds, kcal)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, game, difficulty, score, medal, time.time(), seconds, kcal))
         self.conn.commit()
+
+    def latest_weight(self, pid):
+        r = self.conn.execute("SELECT kg FROM weights WHERE profile_id = ? ORDER BY ts DESC LIMIT 1",
+                              (pid,)).fetchone()
+        return r["kg"] if r else None
+
+    def totals(self, pid):
+        """Minuti, calorie e partite totali del profilo."""
+        r = self.conn.execute(
+            "SELECT COALESCE(SUM(seconds), 0) AS s, COALESCE(SUM(kcal), 0) AS k, COUNT(*) AS n"
+            " FROM scores WHERE profile_id = ?", (pid,)).fetchone()
+        return {"minutes": r["s"] / 60.0, "kcal": r["k"], "games": r["n"]}
+
+    def minutes_by_day(self, pid, days=7):
+        """Lista di (data, minuti) per gli ultimi `days` giorni, dal piu' vecchio a oggi."""
+        today = datetime.date.today()
+        out = []
+        for i in range(days - 1, -1, -1):
+            d = today - datetime.timedelta(days=i)
+            start = datetime.datetime.combine(d, datetime.time.min).timestamp()
+            r = self.conn.execute(
+                "SELECT COALESCE(SUM(seconds), 0) FROM scores WHERE profile_id = ? AND ts >= ? AND ts < ?",
+                (pid, start, start + 86400)).fetchone()
+            out.append((d, r[0] / 60.0))
+        return out
+
+    def best_medals(self, pid):
+        """{(gioco, difficolta'): medaglia migliore}."""
+        return {(r["game"], r["difficulty"]): r["m"] for r in self.conn.execute(
+            "SELECT game, difficulty, MAX(medal) AS m FROM scores WHERE profile_id = ? "
+            "GROUP BY game, difficulty", (pid,))}
 
     def best_score(self, pid, game, difficulty):
         r = self.conn.execute(

@@ -6,17 +6,21 @@ import random
 import time
 import types
 
+from direct.gui import DirectGuiGlobals as DGG
 from direct.gui.DirectGui import DirectButton, DirectEntry, DirectFrame, DirectLabel
 from direct.showbase.ShowBase import ShowBase
-from panda3d.core import (AmbientLight, DirectionalLight, LineSegs, OrthographicLens, TextNode,
-                          WindowProperties, loadPrcFileData)
+from panda3d.core import (AmbientLight, CardMaker, DirectionalLight, LineSegs, OrthographicLens, TextNode,
+                          TransparencyAttrib, WindowProperties, loadPrcFileData)
 
+import ui
 from audio import Sound
+from fx import Particles
 from balance_board import BOARD_LENGTH_MM, BOARD_WIDTH_MM, BalanceBoard
 from db import Store
 from games import GAMES
-from gamekit import blob, make_penguin, perspective, set_flippers
+from gamekit import blob, clamp, make_penguin, perspective, set_flippers
 from games.yoga import POSES
+from screens import ExtraScreens
 from voice import BASE, Voice
 
 loadPrcFileData("", "window-title VibeFit\nwin-size 1100 700")
@@ -24,12 +28,14 @@ loadPrcFileData("", "window-title VibeFit\nwin-size 1100 700")
 SCALE = 0.01
 BG = (0.55, 0.78, 0.9, 1)
 BTN = (0.2, 0.55, 0.45, 1)
+FOCUS = (0.95, 0.6, 0.15, 1)  # pulsante selezionato con la board
 INK = (0.1, 0.15, 0.2, 1)
 
 
-class VibeFit(ShowBase):
+class VibeFit(ExtraScreens, ShowBase):
     def __init__(self):
         super().__init__()
+        self.focusables, self.focus_i, self.back_cmd = [], None, None
         self.setBackgroundColor(*BG)
         self.disableMouse()
         self.store = Store()
@@ -41,8 +47,12 @@ class VibeFit(ShowBase):
         self.root = None
         self.task = None
         self.game = None
-        self.difficulty = 1  # 0 facile, 1 normale, 2 difficile
-        self.use_keyboard = False
+        # impostazioni salvate nel database
+        self.difficulty = int(self.store.get_setting("difficulty", 1))  # 0 facile, 1 normale, 2 difficile
+        self.use_keyboard = self.store.get_setting("keyboard", "0") == "1"
+        self.nav_board = self.store.get_setting("nav_board", "0") == "1"
+        self.weekly_goal = int(self.store.get_setting("goal_min", 30))
+        self.nav = types.SimpleNamespace(cool=0.0, hold_r=0.0, hold_l=0.0, empty=0.0)
         self.keys = set()
         self.kb = [0.0, 0.0, 1.0]
         self.inp = types.SimpleNamespace(x=0.0, y=0.0, total=0.0, present=False)
@@ -51,9 +61,12 @@ class VibeFit(ShowBase):
         phrases.update({f"blurb_{c.key}": c.blurb for c in GAMES})
         phrases.update({f"pose_{i}": p[0] for i, p in enumerate(POSES)})
         self.voice = Voice(self.loader, phrases)
+        self.sound.muted = self.store.get_setting("muted", "0") == "1"
+        self.voice.enabled = self.store.get_setting("voice", "1") == "1"
         self.session = None
         self._build_scene()
         self._build_mascot()
+        self._build_fade()
         self.accept("escape", self.userExit)
         self.accept("f11", self.toggle_fullscreen)
         self.accept("aspectRatioChanged", self._on_aspect)
@@ -61,7 +74,60 @@ class VibeFit(ShowBase):
             self.accept(k, self.keys.add, [k])
             self.accept(k + "-up", self.keys.discard, [k])
         self.sound.music("menu")
+        self.taskMgr.add(self._idle_board_task, "idle-board")
         self.show_profiles()
+
+    # ---------- board nei menu: azzeramento automatico e navigazione ----------
+    NAV_LEAN = 50.0  # mm avanti/indietro per spostare la selezione
+    NAV_PUSH = 90.0  # mm a destra/sinistra per confermare/tornare indietro
+    NAV_HOLD = 0.7  # secondi da tenere
+
+    def _set_focus(self, i):
+        if self.focus_i is not None and self.focus_i < len(self.focusables):
+            old = self.focusables[self.focus_i]
+            if not old.isEmpty():
+                self.paint(old, old.base_color)
+        self.focus_i = i
+        if i is not None:  # solo l'aspetto: base_color resta il colore originale
+            self.focusables[i]["frameColor"] = self._states(FOCUS)
+
+    def _idle_board_task(self, task):
+        """Nei menu (nessun gioco in corso): azzera la board quando e' vuota e gestisce la navigazione."""
+        if self.task is not None or self.use_keyboard or not self.board.healthy:
+            self.nav.empty = 0.0
+            return task.cont
+        dt, n = globalClock.getDt(), self.nav
+        raw = self.board.kg
+        if abs(sum(raw)) < 4.0:  # board vuota: la azzera
+            n.empty += dt
+            if n.empty > 1.5:
+                self.offsets = list(raw)
+                self.tared = True
+        else:
+            n.empty = 0.0
+        if not (self.nav_board and self.focusables and self.tared):
+            return task.cont
+        self._read_input(dt)
+        i = self.inp
+        n.cool -= dt
+        if not i.present:
+            n.hold_r = n.hold_l = 0.0
+            return task.cont
+        if n.cool <= 0 and abs(i.y) > self.NAV_LEAN:
+            step = -1 if i.y > 0 else 1  # inclinarsi in avanti = salire nella lista
+            nxt = 0 if self.focus_i is None else (self.focus_i + step) % len(self.focusables)
+            self._set_focus(nxt)
+            self.sound.play("click")
+            n.cool = 0.5
+        n.hold_r = n.hold_r + dt if i.x > self.NAV_PUSH else 0.0
+        n.hold_l = n.hold_l + dt if i.x < -self.NAV_PUSH else 0.0
+        if n.hold_r > self.NAV_HOLD and self.focus_i is not None:
+            n.hold_r = 0.0
+            self.focusables[self.focus_i].commandFunc(None)
+        elif n.hold_l > self.NAV_HOLD and self.back_cmd:
+            n.hold_l = 0.0
+            self.back_cmd()
+        return task.cont
 
     # ---------- finestra e camera ----------
     def toggle_fullscreen(self):
@@ -103,7 +169,33 @@ class VibeFit(ShowBase):
         self.mascot.hide()
         self.taskMgr.add(self._mascot_task, "mascot")
 
+    def _build_fade(self):
+        """Velo nero a tutto schermo che si dissolve a ogni cambio di schermata."""
+        cm = CardMaker("fade")
+        cm.setFrame(-1, 1, -1, 1)
+        self.fade = self.render2d.attachNewNode(cm.generate())
+        self.fade.setTransparency(TransparencyAttrib.MAlpha)
+        self.fade.setColor(0, 0, 0, 0)
+        self.fade.setBin("gui-popup", 100)
+        self.fade.setDepthTest(False)
+        self.fade.setDepthWrite(False)
+        self.fade_a = 0.0
+        self.confetti = Particles(self.loader, self.render)
+        self.taskMgr.add(self._fade_task, "fade")
+
+    def _fade_task(self, task):
+        if self.fade_a > 0:
+            self.fade_a = max(0.0, self.fade_a - globalClock.getDt() * 2.2)
+            self.fade.setColor(0, 0, 0, self.fade_a)
+        return task.cont
+
+    def _confetti(self):
+        colors = ((1, 0.3, 0.3), (1, 0.85, 0.2), (0.3, 0.7, 1), (0.4, 0.9, 0.5), (0.9, 0.5, 0.9))
+        for x in (-3.6, -2.5, -1.4):
+            self.confetti.burst((x, -1.0, 2.6), colors, n=22, speed=2.5, life=2.2, size=0.11, up=5.0, gravity=-4.0)
+
     def _mascot_task(self, task):
+        self.confetti.update(globalClock.getDt())
         if self.mascot.isHidden():
             return task.cont
         self.mascot_t += globalClock.getDt()
@@ -189,27 +281,62 @@ class VibeFit(ShowBase):
             self.game = None
         if self.root:
             self.root.destroy()
+        self.focusables, self.focus_i, self.back_cmd = [], None, None
         self.scene.hide()
         self.target.hide()
         self.mascot.hide()
         self._topdown()
+        self.confetti.clear()
+        self.fade_a = 0.55
         if mascot:
             self.mascot_mood = mascot
             self.mascot.show()
             self._mascot_camera()
+            if mascot == "happy":
+                self._confetti()
         self.root = DirectFrame(frameColor=(0, 0, 0, 0))
         if title:
             self.label(title, (0, 0, 0.8), 0.12)
         return self.root
 
+    def mini_board(self, pos=(-1.3, 0, -0.8)):
+        """Mini-board in un angolo: restituisce update(x_mm, y_mm) che muove il pallino del baricentro."""
+        w, h = 0.2, 0.11
+        DirectFrame(parent=self.root, pos=pos, frameColor=(1, 1, 1, 0.55), frameSize=(-w, w, -h, h))
+        DirectFrame(parent=self.root, pos=pos, frameColor=(0.5, 0.5, 0.55, 0.8), frameSize=(-w, w, -0.002, 0.002))
+        DirectFrame(parent=self.root, pos=pos, frameColor=(0.5, 0.5, 0.55, 0.8), frameSize=(-0.002, 0.002, -h, h))
+        dot = DirectFrame(parent=self.root, pos=pos, frameColor=(0.9, 0.2, 0.25, 1), frameSize=(-0.018, 0.018, -0.018, 0.018))
+
+        def update(x, y):
+            dot.setPos(pos[0] + clamp(x / 216.0) * w, 0, pos[2] + clamp(y / 119.0) * h)
+
+        return update
+
     def label(self, text, pos, scale=0.07, align=TextNode.ACenter):
         return DirectLabel(parent=self.root, text=text, pos=pos, scale=scale, text_fg=INK,
                            text_align=align, frameColor=(0, 0, 0, 0))
 
-    def button(self, text, pos, cmd, scale=0.08, width=7):
-        return DirectButton(parent=self.root, text=text, pos=pos, scale=scale, command=cmd,
-                            frameColor=BTN, text_fg=(1, 1, 1, 1), frameSize=(-width, width, -0.8, 1.0),
-                            relief=1, pressEffect=1, clickSound=self.sound.sfx["click"])
+    @staticmethod
+    def _states(color):
+        """Colori del pulsante: normale, premuto, sopra col mouse, disattivato."""
+        return (color, ui.shade(color, 0.8), ui.shade(color, 1.18), (0.6, 0.6, 0.6, 1))
+
+    def paint(self, b, color):
+        b.base_color = color
+        b["frameColor"] = self._states(color)
+
+    def button(self, text, pos, cmd, scale=0.08, width=7, color=BTN):
+        b = DirectButton(parent=self.root, text=text, pos=pos, scale=scale, command=cmd,
+                         frameTexture=ui.rounded_texture(2 * width / 1.8), frameColor=self._states(color),
+                         text_fg=(1, 1, 1, 1), text_shadow=(0, 0, 0, 0.3),
+                         frameSize=(-width, width, -0.8, 1.0), relief=DGG.FLAT, pressEffect=1,
+                         clickSound=self.sound.sfx["click"])
+        b.setTransparency(TransparencyAttrib.MAlpha)
+        b.base_color = color
+        self.focusables.append(b)  # per la navigazione dei menu con la board
+        if text == "Indietro":
+            self.back_cmd = cmd
+        return b
 
     def entry(self, pos, initial=""):
         return DirectEntry(parent=self.root, pos=pos, scale=0.07, initialText=initial, width=14,
@@ -229,7 +356,37 @@ class VibeFit(ShowBase):
 
     def select_profile(self, pid):
         self.profile = self.store.get_profile(pid)
-        self.show_menu()
+        if self.store.get_setting(f"notice_{pid}") is None:  # prima volta: avviso di sicurezza
+            self.show_notice()
+        else:
+            self.show_menu()
+
+    NOTICE = (
+        "Usa la board su un pavimento piano e antiscivolo, con spazio libero attorno.",
+        "Sali e scendi con attenzione, scalzo o con calzini antiscivolo.",
+        "Muoviti con gradualita': fermati se senti dolore o capogiro.",
+        "Se hai problemi di salute o di equilibrio, chiedi prima il parere del medico.",
+        "Salto e squat: se sei alle prime armi scegli la difficolta' Facile.",
+        "La Wii Balance Board regge al massimo 150 kg.",
+    )
+    TIPS = (
+        "Consiglio: scalzo o con calzini antiscivolo.",
+        "Consiglio: fai qualche respiro profondo prima di cominciare.",
+        "Consiglio: tieni vicino un appoggio, se hai dubbi sull'equilibrio.",
+        "Consiglio: bevi un po' d'acqua durante l'allenamento.",
+        "Consiglio: fermati subito se senti dolore o capogiro.",
+    )
+
+    def show_notice(self):
+        self._screen("Prima di iniziare", mascot="idle")
+        for i, line in enumerate(self.NOTICE):
+            self.label(line, (0.35, 0, 0.55 - i * 0.13), 0.05)
+
+        def ok():
+            self.store.set_setting(f"notice_{self.profile['id']}", 1)
+            self.show_menu()
+
+        self.button("Ho capito", (0.35, 0, -0.5), ok, width=6)
 
     def show_new_profile(self, error=""):
         self._screen("Nuovo profilo")
@@ -272,29 +429,29 @@ class VibeFit(ShowBase):
         self.label(f"Giorni di allenamento consecutivi: {streak}", (0, 0, 0.69), 0.05)
         items = [("Allenamento di oggi" + (" (fatto)" if done else ""), self.show_session),
                  ("Giochi", self.show_games), ("Pesati", self.show_weigh),
-                 ("Test di equilibrio", self.show_balance), ("Storico peso", self.show_history),
-                 ("Storico equilibrio", self.show_balance_history),
+                 ("Test di equilibrio", self.show_balance), ("Statistiche", self.show_stats),
+                 ("Impostazioni", self.show_settings), ("Come si gioca", self.show_help),
                  ("Cambia profilo", self.show_profiles), ("Esci", self.userExit)]
         for i, (text, cmd) in enumerate(items):
-            self.button(text, (0, 0, 0.57 - i * 0.145), cmd, scale=0.065, width=9)
-        for x, text, cmd in ((-0.85, f"Input: {'tastiera' if self.use_keyboard else 'board'}", self._toggle_input),
-                             (0.0, f"Suono: {'off' if self.sound.muted else 'on'}", self._toggle_sound),
-                             (0.85, f"Voce: {'on' if self.voice.enabled else 'off'}", self._toggle_voice)):
-            self.button(text, (x, 0, -0.68), cmd, scale=0.05, width=6)
-        self.status = self.label("", (0, 0, -0.85), 0.05)
+            self.button(text, (0, 0, 0.57 - i * 0.13), cmd, scale=0.06, width=9)
+        mode = "tastiera" if self.use_keyboard else "board"
+        self.status = self.label(f"Input: {mode}", (0, 0, -0.78), 0.045)
 
     def _toggle_input(self):
         self.use_keyboard = not self.use_keyboard
-        self.show_menu()
+        self.store.set_setting("keyboard", int(self.use_keyboard))
+        self.show_settings()
 
     def _toggle_sound(self):
         self.sound.toggle_mute()
-        self.show_menu()
+        self.store.set_setting("muted", int(self.sound.muted))
+        self.show_settings()
 
     def _toggle_voice(self):
         self.voice.enabled = not self.voice.enabled
         self.voice.stop()
-        self.show_menu()
+        self.store.set_setting("voice", int(self.voice.enabled))
+        self.show_settings()
 
     # ---------- allenamento giornaliero ----------
     # un esercizio per categoria: riscaldamento, forza, azione, equilibrio (defaticamento)
@@ -358,7 +515,7 @@ class VibeFit(ShowBase):
             b = self.button(name, (-0.55 + d * 0.55, 0, 0.62), lambda d=d: self._set_difficulty(d),
                             scale=0.06, width=4)
             if d != self.difficulty:
-                b["frameColor"] = (0.45, 0.6, 0.55, 1)
+                self.paint(b, (0.45, 0.6, 0.55, 1))
         for i, cls in enumerate(GAMES):
             y = 0.44 - i * 0.135
             self.button(cls.title, (-0.35, 0, y), lambda c=cls: self.start_game(c), scale=0.06, width=9)
@@ -369,9 +526,10 @@ class VibeFit(ShowBase):
                    (0, 0, -0.75), 0.05)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
 
-    def _set_difficulty(self, d):
+    def _set_difficulty(self, d, then=None):
         self.difficulty = d
-        self.show_games()
+        self.store.set_setting("difficulty", d)
+        (then or self.show_games)()
 
     def _read_input(self, dt):
         """Aggiorna self.inp da board (con azzeramento) o da tastiera."""
@@ -387,7 +545,7 @@ class VibeFit(ShowBase):
             else:
                 self.kb[2] += (tw - self.kb[2]) * min(1.0, 10 * dt)
             i.x, i.y, i.total, i.present = self.kb[0], self.kb[1], 70.0 * self.kb[2], True
-        elif self.board.connected:
+        elif self.board.healthy:
             kg = [r - o for r, o in zip(self.board.kg, self.offsets)]
             i.total = sum(kg)
             i.x, i.y = self._cog(kg, i.total)
@@ -412,6 +570,9 @@ class VibeFit(ShowBase):
         self.phase = "step" if (self.use_keyboard or self.tared) else "empty"
         self.intro_until = None
         self.empty_since = None
+        self.off_board = 0.0
+        self.last_reopen = 0.0
+        self.tip = self.label(random.choice(self.TIPS), (0, 0, -0.8), 0.05)
         self.phase_t = 0.0
         self.count_last = None
         self.task = self.taskMgr.add(self._game_task, "game")
@@ -455,15 +616,35 @@ class VibeFit(ShowBase):
                 self.voice.say("go")
                 self.big["text"] = ""
                 self.msg["text"] = ""
+                self.tip.hide()
                 self.game = self.cls(self, self.difficulty)
                 self.sound.music(self.game.music)
                 self.phase = "run"
         elif self.phase == "run":
-            self.game.tick(dt, self.inp)
-            if self.game.done:
-                self._finish_game()
-                return task.done
+            paused = self._pause_reason(dt, now)
+            self.msg["text"] = paused or ""
+            if not paused:
+                self.game.tick(dt, self.inp)
+                if self.game.done:
+                    self._finish_game()
+                    return task.done
         return task.cont
+
+    GRACE_OFF_BOARD = 1.5  # secondi senza peso prima di mettere in pausa (il salto dura meno)
+
+    def _pause_reason(self, dt, now):
+        """Messaggio se la partita va messa in pausa (board persa o persona scesa), altrimenti None."""
+        if self.use_keyboard:
+            return None
+        if not self.board.healthy:
+            if now - self.last_reopen > 2.0:  # prova a riconnettersi da sola
+                self.last_reopen = now
+                self.board.reopen()
+            return "Board non risponde: premi il tasto power sulla board"
+        self.off_board = 0.0 if self.inp.present else self.off_board + dt
+        if self.off_board > self.GRACE_OFF_BOARD:
+            return "Sei sceso dalla board: risali per continuare"
+        return None
 
     def _finish_game(self):
         game = self.game
@@ -472,7 +653,9 @@ class VibeFit(ShowBase):
         medal = 3 if score >= gold else 2 if score >= silver else 1 if score >= bronze else 0
         pid = self.profile["id"]
         prev = self.store.best_score(pid, game.key, game.diff)
-        self.store.add_score(pid, game.key, game.diff, score, medal)
+        seconds = max(0, round(game.duration - max(game.time_left, 0)))
+        kcal = game.met * (self.store.latest_weight(pid) or 70.0) * seconds / 3600.0
+        self.store.add_score(pid, game.key, game.diff, score, medal, seconds, kcal)
         cls = type(game)
         self._screen(cls.title, mascot="happy" if medal else "sad")
         self.sound.music(None)
@@ -499,14 +682,13 @@ class VibeFit(ShowBase):
             self.button("Giochi", (0.75, 0, -0.55), self.show_games, width=5)
 
     def ensure_board(self):
-        if self.board.connected:
+        """True se la board sta mandando dati; altrimenti prova a (ri)aprire la connessione."""
+        if self.board.healthy:
             return True
-        try:
-            self.board.open()
+        if self.board.reopen():
             return True
-        except Exception as e:  # noqa: BLE001
-            self.board_error = str(e)
-            return False
+        self.board_error = self.board.error
+        return False
 
     # ---------- pesata ----------
     def show_weigh(self):
@@ -724,7 +906,7 @@ class VibeFit(ShowBase):
 
     def _graph(self, title, rows, unit, empty_msg, noun, decimals=1):
         self._screen(title)
-        self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
+        self.button("Indietro", (1.15, 0, -0.85), self.show_stats, scale=0.06, width=4)
         if not rows:
             self.label(empty_msg, (0, 0, 0.2))
             return

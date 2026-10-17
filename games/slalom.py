@@ -2,7 +2,8 @@
 import math
 import random
 
-from gamekit import Game, blob, box, clamp, make_penguin, perspective
+from fx import Clouds, follow_shadow, make_shadow, mountains, sun
+from gamekit import Game, blob, box, clamp, make_penguin, perspective, set_flippers
 
 W = 6.0  # semi-larghezza della pista
 GATE_EVERY = 18.0
@@ -14,6 +15,7 @@ class Slalom(Game):
     title = "Slalom sugli sci"
     blurb = "Inclinati a destra e a sinistra e passa tra le porte"
     music = "action"
+    met = 3.5  # equivalente metabolico, per stimare le calorie
     duration = 45.0
 
     def setup(self):
@@ -28,6 +30,11 @@ class Slalom(Game):
         self.peng.setScale(0.8)
         for s in (-1, 1):  # sci
             box(self.peng, L, (0.18, 1.6, 0.06), (0.75, 0.3, 0.1), (s * 0.22, 0.25, 0.02))
+        self.shadow = make_shadow(self.root, L, 0.7)
+        self.mountains = mountains(self.root, L, 7, (-200, 200), 330)
+        self.clouds = Clouds(self.root, L, 6, (-120, 120), 250, (35, 70))
+        self.sun = sun(self.root, L, (80, 380, 90), 14)
+        self.snow_t = 0.0
         self.px = self.py = 0.0
         self.streak = self.passed = 0
         self.gates = []
@@ -73,6 +80,21 @@ class Slalom(Game):
         self.py += self.speed * dt
         self.peng.setPos(self.px, self.py, 0.05)
         self.peng.setH(clamp(-dx * 6, -35, 35))
+        self.peng.setR(clamp(-dx * 4, -20, 20))  # si inclina nella curva
+        set_flippers(self.peng, 40 + min(abs(dx) * 14, 50))
+        follow_shadow(self.shadow, self.px, self.py)
+        for m in self.mountains:
+            m.setY(self.py + 330)
+        self.sun.setY(self.py + 380)
+        self.clouds.update(dt, self.py)
+        self.snow_t -= dt
+        while self.snow_t <= 0:  # neve che cade attorno al pinguino
+            self.snow_t += 0.03
+            self.fx.emit((self.px + random.uniform(-14, 14), self.py + random.uniform(2, 45), 9),
+                         (random.uniform(-0.5, 0.5), 0, -random.uniform(2.5, 4.5)), (1, 1, 1), 3.0, 0.07, 0)
+        if self.speed > 0:  # scia di neve dietro agli sci
+            self.fx.emit((self.px + random.uniform(-0.3, 0.3), self.py - 0.4, 0.15),
+                         (random.uniform(-0.6, 0.6), -1.0, random.uniform(0.4, 1.2)), (0.95, 0.97, 1), 0.5, 0.1, -3)
         cam = self.app.camera
         cam.setPos(self.px * 0.6, self.py - 9, 5.2)
         cam.lookAt(self.px * 0.7, self.py + 8, 0.5)
@@ -86,6 +108,7 @@ class Slalom(Game):
                     self.passed += 1
                     self.score += 100 + min(self.streak, 10) * 10
                     self.app.sound.play("coin")
+                    self.fx.burst((g["cx"], g["y"], 1.2), ((1, 0.9, 0.2), (1, 1, 1)), 14, 3.0, 0.7)
                     self.hud_msg["text"] = f"Serie x{self.streak}!" if self.streak >= 3 else "Bene!"
                 else:
                     self.streak = 0

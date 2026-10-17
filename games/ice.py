@@ -2,7 +2,8 @@
 import math
 import random
 
-from gamekit import Game, blob, box, clamp, make_penguin, perspective
+from fx import Clouds, make_shadow
+from gamekit import Game, blob, box, clamp, make_penguin, perspective, set_flippers
 
 RADIUS = 4.5
 PICKUP = 0.8
@@ -13,6 +14,7 @@ class IceBalance(Game):
     title = "Equilibrio sul ghiaccio"
     blurb = "Sposta il peso per far scivolare il pinguino a prendere i pesci"
     music = "calm"
+    met = 2.5  # equivalente metabolico, per stimare le calorie
     duration = 60.0
 
     def setup(self):
@@ -33,6 +35,11 @@ class IceBalance(Game):
         self.fish = self.plat.attachNewNode("fish")
         blob(self.fish, L, (0.45, 0.22, 0.2), (1.0, 0.55, 0.15), (0, 0, 0.3))
         box(self.fish, L, (0.05, 0.3, 0.3), (1.0, 0.45, 0.1), (-0.5, 0, 0.3))
+        self.shadow = make_shadow(self.plat, L, 0.6)
+        for x, y, s in ((-13, 7, 1.6), (13, 9, 2.0), (-8, 17, 2.8), (9, 19, 2.2), (0, 25, 4.0), (-17, 1, 1.6)):
+            blob(self.root, L, (s, s * 0.8, s * 0.7), (0.88, 0.95, 1.0), (x, y, s * 0.15 - 0.6))
+        self.clouds = Clouds(self.root, L, 5, (-40, 40), 30, (14, 22))
+        self.t = 0.0
         self.pos = [0.0, 0.0]
         self.vel = [0.0, 0.0]
         self.fallen = 0.0
@@ -58,6 +65,10 @@ class IceBalance(Game):
         lx, ly = clamp(inp.x / 110.0), clamp(inp.y / 70.0)
         self.plat.setHpr(0, -ly * 8, lx * 8)
         self.fish.setH(self.fish.getH() + 90 * dt)
+        self.fish.setZ(0.05 + 0.08 * math.sin(self.t * 4))
+        self.t += dt
+        self.sea.setZ(-0.9 + 0.06 * math.sin(self.t * 1.5))  # il mare ondeggia
+        self.clouds.update(dt)
         self.hud_msg["text"] = f"Vite: {self.lives}"
 
         if self.fallen > 0:
@@ -65,6 +76,7 @@ class IceBalance(Game):
             if self.fallen <= 0:
                 self.pos, self.vel = [0.0, 0.0], [0.0, 0.0]
                 self.peng.show()
+                self.shadow.show()
             return
 
         for i, l in enumerate((lx, ly)):
@@ -73,13 +85,22 @@ class IceBalance(Game):
             self.pos[i] += self.vel[i] * dt
         speed = math.hypot(*self.vel)
         self.peng.setPos(self.pos[0], self.pos[1], 0.0)
+        self.shadow.setPos(self.pos[0], self.pos[1], 0.02)
+        set_flippers(self.peng, 30 + min(speed * 25, 60))  # allarga le ali per bilanciarsi
         if speed > 0.3:
             self.peng.setH(math.degrees(math.atan2(-self.vel[0], self.vel[1])))
+            if random.random() < 0.5:  # polvere di ghiaccio
+                wp = self.peng.getPos(self.root)
+                self.fx.emit((wp.x, wp.y, wp.z + 0.1), (random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5), 0.8),
+                             (0.9, 0.97, 1), 0.4, 0.08, -2)
 
         if math.hypot(*self.pos) > RADIUS:
             self.lives -= 1
             self.app.sound.play("splash")
+            wp = self.peng.getPos(self.root)
+            self.fx.burst((wp.x, wp.y, 0.0), ((0.5, 0.75, 1), (1, 1, 1)), 26, 4.0, 1.0, 0.16, up=6.0)
             self.peng.hide()
+            self.shadow.hide()
             self.fallen = 1.0
             if self.lives <= 0:
                 self.done = True
@@ -88,4 +109,6 @@ class IceBalance(Game):
             self.catches += 1
             self.score += 100
             self.app.sound.play("coin")
+            wp = self.fish.getPos(self.root)
+            self.fx.burst((wp.x, wp.y, wp.z + 0.3), ((1, 0.8, 0.2), (1, 1, 1), (1, 0.55, 0.15)), 16, 3.0, 0.7)
             self._new_fish()

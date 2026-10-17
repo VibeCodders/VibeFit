@@ -18,9 +18,29 @@ class BalanceBoard:
         self.total = 0.0
         self.cog = (0.0, 0.0)  # mm dal centro, x destra, y avanti
         self.connected = False
+        self.error = None
+        self.last_data = 0.0
         self._running = False
         self._thread = None
         self._cal_buf = {}
+
+    @property
+    def healthy(self):
+        """True se la board e' aperta e sta mandando dati (con i report continui arrivano ~100 al secondo)."""
+        return self.connected and time.time() - self.last_data < 1.5
+
+    def reopen(self):
+        """Chiude e riapre la connessione (dopo uno spegnimento della board). True se riuscita."""
+        try:
+            self.close()
+            self.calib = None
+            self._cal_buf = {}
+            self.error = None
+            self.open()
+            return True
+        except Exception as e:  # noqa: BLE001
+            self.error = str(e)
+            return False
 
     # --- basso livello ---
     def _send(self, *data):
@@ -42,7 +62,7 @@ class BalanceBoard:
         self._write_mem(0xA400F0, 0x55)  # disattiva cifratura estensione
         self._write_mem(0xA400FB, 0x00)
         self._read_mem(0xA40024, 24)  # calibrazione
-        self._send(0x12, 0x00, 0x32)  # report 0x32: bottoni + 8 byte estensione
+        self._send(0x12, 0x04, 0x32)  # report 0x32 (bottoni + 8 byte estensione), continuo
         self._send(0x11, 0x10)  # LED1 acceso
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -51,21 +71,33 @@ class BalanceBoard:
         while self.calib is None and time.time() - t0 < timeout:
             time.sleep(0.05)
         if self.calib is None:
+            self.close()
             raise RuntimeError("Calibrazione non ricevuta: la board risponde?")
+        self.last_data = time.time()
         self.connected = True
 
     def close(self):
         self._running = False
-        if self._thread:
+        if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=1)
+        self._thread = None
         if self.dev:
-            self.dev.close()
+            try:
+                self.dev.close()
+            except OSError:
+                pass
+            self.dev = None
         self.connected = False
 
     # --- parsing ---
     def _loop(self):
         while self._running:
-            data = self.dev.read(REPORT_LEN)
+            try:
+                data = self.dev.read(REPORT_LEN)
+            except (OSError, ValueError) as e:  # board spenta o scollegata
+                self.error = str(e)
+                self.connected = False
+                return
             if not data:
                 time.sleep(0.002)
                 continue
@@ -96,6 +128,7 @@ class BalanceBoard:
     def _on_data(self, ext):
         if self.calib is None:
             return
+        self.last_data = time.time()
         raws = [(ext[i] << 8) | ext[i + 1] for i in range(0, 8, 2)]
         kg = [self._to_kg(r, i) for i, r in enumerate(raws)]
         total = sum(kg)
