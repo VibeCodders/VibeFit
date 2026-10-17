@@ -23,6 +23,15 @@ class Store:
                 ts REAL NOT NULL,
                 kg REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS scores (
+                id INTEGER PRIMARY KEY,
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                game TEXT NOT NULL,
+                difficulty INTEGER NOT NULL,
+                score INTEGER NOT NULL,
+                medal INTEGER NOT NULL,
+                ts REAL NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS balance_tests (
                 id INTEGER PRIMARY KEY,
                 profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -51,6 +60,24 @@ class Store:
         self.conn.execute("INSERT INTO weights (profile_id, ts, kg) VALUES (?, ?, ?)",
                           (pid, time.time(), kg))
         self.conn.commit()
+
+    def add_score(self, pid, game, difficulty, score, medal):
+        self.conn.execute(
+            "INSERT INTO scores (profile_id, game, difficulty, score, medal, ts) VALUES (?, ?, ?, ?, ?, ?)",
+            (pid, game, difficulty, score, medal, time.time()))
+        self.conn.commit()
+
+    def best_score(self, pid, game, difficulty):
+        r = self.conn.execute(
+            "SELECT MAX(score) FROM scores WHERE profile_id = ? AND game = ? AND difficulty = ?",
+            (pid, game, difficulty)).fetchone()
+        return r[0]
+
+    def best_medal(self, pid, game, difficulty):
+        r = self.conn.execute(
+            "SELECT MAX(medal) FROM scores WHERE profile_id = ? AND game = ? AND difficulty = ?",
+            (pid, game, difficulty)).fetchone()
+        return r[0] or 0
 
     def add_balance_test(self, pid, score_still, score_follow, balance_age):
         self.conn.execute(

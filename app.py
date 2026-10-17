@@ -207,13 +207,158 @@ class VibeFit(ShowBase):
     # ---------- menu ----------
     def show_menu(self):
         self._screen(f"Ciao, {self.profile['name']}!")
-        self.button("Pesati", (0, 0, 0.5), self.show_weigh, width=8)
-        self.button("Test di equilibrio", (0, 0, 0.3), self.show_balance, width=8)
-        self.button("Storico peso", (0, 0, 0.1), self.show_history, width=8)
-        self.button("Storico equilibrio", (0, 0, -0.1), self.show_balance_history, width=8)
-        self.button("Cambia profilo", (0, 0, -0.3), self.show_profiles, width=8)
-        self.button("Esci", (0, 0, -0.5), self.userExit, width=8)
-        self.status = self.label("", (0, 0, -0.75), 0.055)
+        self.sound.music("menu")
+        items = [("Giochi", self.show_games), ("Pesati", self.show_weigh),
+                 ("Test di equilibrio", self.show_balance), ("Storico peso", self.show_history),
+                 ("Storico equilibrio", self.show_balance_history),
+                 ("Cambia profilo", self.show_profiles), ("Esci", self.userExit)]
+        for i, (text, cmd) in enumerate(items):
+            self.button(text, (0, 0, 0.58 - i * 0.16), cmd, scale=0.07, width=8)
+        self.button(f"Input: {'tastiera' if self.use_keyboard else 'board'}", (-0.6, 0, -0.62),
+                    self._toggle_input, scale=0.055, width=6)
+        self.button(f"Suono: {'off' if self.sound.muted else 'on'}", (0.6, 0, -0.62),
+                    self._toggle_sound, scale=0.055, width=6)
+        self.status = self.label("", (0, 0, -0.8), 0.055)
+
+    def _toggle_input(self):
+        self.use_keyboard = not self.use_keyboard
+        self.show_menu()
+
+    def _toggle_sound(self):
+        self.sound.toggle_mute()
+        self.show_menu()
+
+    # ---------- giochi ----------
+    MEDAL_NAMES = ("", "Bronzo", "Argento", "Oro")
+    MEDAL_COLORS = ((0.3, 0.3, 0.3, 1), (0.7, 0.4, 0.15, 1), (0.5, 0.55, 0.6, 1), (0.85, 0.65, 0.05, 1))
+    DIFF_NAMES = ("Facile", "Normale", "Difficile")
+
+    def show_games(self):
+        self._screen("Giochi")
+        self.sound.music("menu")
+        for d, name in enumerate(self.DIFF_NAMES):
+            b = self.button(name, (-0.55 + d * 0.55, 0, 0.62), lambda d=d: self._set_difficulty(d),
+                            scale=0.06, width=4)
+            if d != self.difficulty:
+                b["frameColor"] = (0.45, 0.6, 0.55, 1)
+        for i, cls in enumerate(GAMES):
+            y = 0.4 - i * 0.2
+            self.button(cls.title, (-0.35, 0, y), lambda c=cls: self.start_game(c), scale=0.065, width=9)
+            medal = self.store.best_medal(self.profile["id"], cls.key, self.difficulty)
+            lab = self.label(self.MEDAL_NAMES[medal] or "-", (0.85, 0, y), 0.06)
+            lab["text_fg"] = self.MEDAL_COLORS[medal]
+        self.label("Input: " + ("tastiera (frecce)" if self.use_keyboard else "board"), (0, 0, -0.75), 0.05)
+        self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
+
+    def _set_difficulty(self, d):
+        self.difficulty = d
+        self.show_games()
+
+    def _read_input(self, dt):
+        """Aggiorna self.inp da board (con azzeramento) o da tastiera."""
+        i = self.inp
+        if self.use_keyboard:
+            tx = (("arrow_right" in self.keys) - ("arrow_left" in self.keys)) * 130.0
+            ty = (("arrow_up" in self.keys) - ("arrow_down" in self.keys)) * 80.0
+            self.kb[0] += (tx - self.kb[0]) * min(1.0, 6 * dt)
+            self.kb[1] += (ty - self.kb[1]) * min(1.0, 6 * dt)
+            i.x, i.y, i.total, i.present = self.kb[0], self.kb[1], 70.0, True
+        elif self.board.connected:
+            kg = [r - o for r, o in zip(self.board.kg, self.offsets)]
+            i.total = sum(kg)
+            i.x, i.y = self._cog(kg, i.total)
+            i.present = i.total > 10
+        else:
+            i.x = i.y = i.total = 0.0
+            i.present = False
+
+    def start_game(self, cls):
+        if not self.use_keyboard and not self.ensure_board():
+            self.show_games()
+            self.label("Board non raggiunta: accendila o usa la tastiera dal menu.",
+                       (0, 0, -0.6), 0.055)
+            return
+        self._screen()
+        self.cls = cls
+        self.sound.music(None)
+        self.msg = self.label("", (0, 0, 0.55), 0.09)
+        self.big = self.label("", (0, 0, 0.0), 0.35)
+        self.button("Indietro", (1.15, 0, -0.85), self.show_games, scale=0.06, width=4)
+        self.phase = "step" if (self.use_keyboard or self.tared) else "empty"
+        self.empty_since = None
+        self.phase_t = 0.0
+        self.count_last = None
+        self.task = self.taskMgr.add(self._game_task, "game")
+
+    def _game_task(self, task):
+        dt = min(globalClock.getDt(), 0.1)
+        now = time.time()
+        self._read_input(dt)
+        if self.phase == "empty":
+            self.msg["text"] = "Non salire ancora: azzero la board..."
+            raw = self.board.kg
+            if abs(sum(raw)) > 4.0:
+                self.msg["text"] = "Scendi dalla board"
+                self.empty_since = None
+            elif self.empty_since is None:
+                self.empty_since = now
+            elif now - self.empty_since > 1.5:
+                self.offsets = list(raw)
+                self.tared = True
+                self.phase = "step"
+        elif self.phase == "step":
+            self.big["text"] = ""
+            if self.inp.present:
+                self.msg["text"] = self.cls.blurb
+                self.phase, self.phase_t = "count", 0.0
+                self.count_last = None
+            else:
+                self.msg["text"] = "Sali sulla board per iniziare"
+        elif self.phase == "count":
+            self.phase_t += dt
+            n = 3 - int(self.phase_t)
+            if n != self.count_last:
+                self.count_last = n
+                if n > 0:
+                    self.sound.play("beep")
+                    self.big["text"] = str(n)
+            if self.phase_t >= 3:
+                self.sound.play("go")
+                self.big["text"] = ""
+                self.msg["text"] = ""
+                self.game = self.cls(self, self.difficulty)
+                self.sound.music(self.game.music)
+                self.phase = "run"
+        elif self.phase == "run":
+            self.game.tick(dt, self.inp)
+            if self.game.done:
+                self._finish_game()
+                return task.done
+        return task.cont
+
+    def _finish_game(self):
+        game = self.game
+        score = int(game.score)
+        bronze, silver, gold = game.medals()
+        medal = 3 if score >= gold else 2 if score >= silver else 1 if score >= bronze else 0
+        pid = self.profile["id"]
+        prev = self.store.best_score(pid, game.key, game.diff)
+        self.store.add_score(pid, game.key, game.diff, score, medal)
+        cls = type(game)
+        self._screen(cls.title)
+        self.sound.music(None)
+        self.sound.play("medal" if medal else "fail")
+        self.label(f"{score} punti", (0, 0, 0.5), 0.2)
+        m = self.label(self.MEDAL_NAMES[medal] and f"Medaglia: {self.MEDAL_NAMES[medal]}" or "Nessuna medaglia",
+                       (0, 0, 0.28), 0.1)
+        m["text_fg"] = self.MEDAL_COLORS[medal]
+        if prev is None or score > prev:
+            self.label("Nuovo record!" if prev is not None else "Primo punteggio!", (0, 0, 0.12), 0.07)
+        else:
+            self.label(f"Record: {prev}", (0, 0, 0.12), 0.07)
+        self.label(f"Soglie: bronzo {bronze:.0f} - argento {silver:.0f} - oro {gold:.0f}", (0, 0, -0.02), 0.05)
+        self.button("Rigioca", (-0.45, 0, -0.4), lambda: self.start_game(cls), width=5)
+        self.button("Giochi", (0.45, 0, -0.4), self.show_games, width=5)
 
     def ensure_board(self):
         if self.board.connected:
