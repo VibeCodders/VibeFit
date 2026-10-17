@@ -92,11 +92,30 @@ def make_sfx():
 
 
 # ---------- musiche ----------
-def _loop(melody, bass, bpm, bars, mel_shape="square", bass_shape="triangle"):
+def _drums(beats, bpm):
+    """Cassa su ogni movimento e charleston sugli ottavi: base ritmica per la danza."""
+    beat = 60.0 / bpm
+    kick = tone(110, 0.14, "sine", 0.55, f_end=45)
+    hat = tone(0, 0.04, "noise", 0.12)
+    out = np.zeros(int(beats * beat * SR) + SR // 2)
+    for i in range(int(beats * 2)):
+        start = int(i * beat / 2 * SR)
+        if i % 2 == 0:
+            out[start:start + len(kick)] += kick
+        else:
+            out[start:start + len(hat)] += hat
+    return out
+
+
+def _loop(melody, bass, bpm, bars, mel_shape="square", bass_shape="triangle", drums=False):
     beat = 60.0 / bpm
     m = seq([(n, d * beat) for n, d in melody], mel_shape, 0.16)
     b = seq([(n, d * beat) for n, d in bass], bass_shape, 0.28)
-    return mix(m, b)
+    tracks = [m, b]
+    if drums:
+        total_beats = sum(d for _, d in bass)
+        tracks.append(_drums(total_beats, bpm)[:len(b)])
+    return mix(*tracks)
 
 
 def make_music():
@@ -114,10 +133,35 @@ def make_music():
     mel = [("E5", 2), ("G5", 1), ("A5", 1), ("G5", 2), ("D5", 2), ("C5", 2), ("E5", 1), ("D5", 1), ("C5", 4)]
     bass = [("C3", 4), ("G2", 4), ("A2", 4), ("F2", 4)]
     save("music_calm", _loop(mel, bass, 72, 4, "sine", "sine"))
+    # Danza: 120 bpm (un movimento ogni 0,5 s), DO maggiore con batteria. La danza si sincronizza su questo.
+    bars = (("E5", "G5", "C6"), ("F5", "A5", "C6"), ("G5", "B5", "D6"), ("A5", "C6", "E6"))
+    mel = []
+    for a, b, c in bars:
+        mel += [(a, .5), (b, .5), (c, .5), (b, .5), (a, .5), (b, .5), (c, 1.0)]
+    bass = []
+    for r, f in (("C3", "G3"), ("F3", "C3"), ("G3", "D3"), ("A3", "E3")):
+        bass += [(r, 1), (f, 1), (r, 1), (f, 1)]
+    save("music_dance", _loop(mel, bass, 120, 16, "square", "triangle", drums=True))
+    # Mare: lento e sognante, per la pesca delle perle
+    mel = [("A4", 2), ("C5", 1), ("E5", 1), ("D5", 2), ("C5", 2), ("E5", 2), ("D5", 1), ("C5", 1), ("A4", 4)]
+    bass = [("A2", 4), ("F2", 4), ("C3", 4), ("G2", 4)]
+    save("music_sea", _loop(mel, bass, 90, 16, "sine", "sine"))
+    # Tensione: staccato in minore, per la fune
+    mel = []
+    for n1, n2, n3 in (("E4", "G4", "A4"), ("D4", "F4", "G4"), ("C4", "E4", "F4")):
+        mel += [(n1, .5), (None, .5), (n1, .5), (n2, .5), (n3, .5), (None, .5), (n2, .5), (n1, .5)]
+    mel += [("B3", .5), (None, .5), ("B3", .5), ("D4", .5), ("E4", 1.0), (None, 1.0)]
+    bass = []
+    for r in ("E2", "D2", "C2", "B1"):
+        bass += [(r, 1), (r, 1), (r[0] + str(int(r[1]) + 1), 1), (r, 1)]
+    save("music_tension", _loop(mel, bass, 110, 16, "square", "triangle"))
+
+
+MUSIC_TRACKS = ("menu", "action", "calm", "dance", "sea", "tension")
 
 
 def generate_all(force=False):
-    if force or not (OUT / "music_calm.wav").exists():
+    if force or not all((OUT / f"music_{n}.wav").exists() for n in MUSIC_TRACKS):
         make_sfx()
         make_music()
 
