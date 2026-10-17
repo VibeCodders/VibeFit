@@ -41,14 +41,14 @@ class VibeFit(ShowBase):
         self.difficulty = 1  # 0 facile, 1 normale, 2 difficile
         self.use_keyboard = False
         self.keys = set()
-        self.kb = [0.0, 0.0]
+        self.kb = [0.0, 0.0, 1.0]
         self.inp = types.SimpleNamespace(x=0.0, y=0.0, total=0.0, present=False)
         self.sound = Sound(self.loader)
         self._build_scene()
         self.accept("escape", self.userExit)
         self.accept("f11", self.toggle_fullscreen)
         self.accept("aspectRatioChanged", self._on_aspect)
-        for k in ("arrow_left", "arrow_right", "arrow_up", "arrow_down"):
+        for k in ("arrow_left", "arrow_right", "arrow_up", "arrow_down", "w", "s"):
             self.accept(k, self.keys.add, [k])
             self.accept(k + "-up", self.keys.discard, [k])
         self.sound.music("menu")
@@ -260,9 +260,11 @@ class VibeFit(ShowBase):
         if self.use_keyboard:
             tx = (("arrow_right" in self.keys) - ("arrow_left" in self.keys)) * 130.0
             ty = (("arrow_up" in self.keys) - ("arrow_down" in self.keys)) * 80.0
+            tw = 1.0 + 0.2 * ("w" in self.keys) - 0.2 * ("s" in self.keys)  # W/S: piu'/meno peso
             self.kb[0] += (tx - self.kb[0]) * min(1.0, 6 * dt)
             self.kb[1] += (ty - self.kb[1]) * min(1.0, 6 * dt)
-            i.x, i.y, i.total, i.present = self.kb[0], self.kb[1], 70.0, True
+            self.kb[2] += (tw - self.kb[2]) * min(1.0, 10 * dt)
+            i.x, i.y, i.total, i.present = self.kb[0], self.kb[1], 70.0 * self.kb[2], True
         elif self.board.connected:
             kg = [r - o for r, o in zip(self.board.kg, self.offsets)]
             i.total = sum(kg)
