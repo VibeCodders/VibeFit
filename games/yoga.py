@@ -20,8 +20,11 @@ class Yoga(Game):
     blurb = "Prendi la posa e tieni il baricentro nella zona verde"
     music = "calm"
     duration = len(POSES) * (PREP + HOLD)
+    cheer = False
 
     def setup(self):
+        self.said_hold = False
+        self.app.voice.say("pose_0")
         self.radius = (35.0, 28.0, 22.0)[self.diff]
         perspective(self.app, 55)
         self.app.setBackgroundColor(0.85, 0.8, 0.95, 1)
@@ -89,6 +92,11 @@ class Yoga(Game):
             self.banked += 250 * min(1.0, self.hold_in / HOLD)  # punti della posa appena finita
             self.app.sound.play("ok")
             self._set_pose(i)
+            self.app.voice.say(f"pose_{i}")
+            self.said_hold = False
+        if t >= PREP and not self.said_hold:
+            self.said_hold = True
+            self.app.voice.say("hold")
         name = POSES[i][0]
         inside = ((inp.x - self.target[0]) ** 2 + (inp.y - self.target[1]) ** 2) ** 0.5 < self.radius
         if inside:

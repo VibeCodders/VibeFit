@@ -1,4 +1,5 @@
 """Archivio locale (SQLite) di profili e pesate."""
+import datetime
 import pathlib
 import sqlite3
 import time
@@ -31,6 +32,15 @@ class Store:
                 score INTEGER NOT NULL,
                 medal INTEGER NOT NULL,
                 ts REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY,
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                day TEXT NOT NULL,
+                ts REAL NOT NULL,
+                seconds INTEGER NOT NULL,
+                points INTEGER NOT NULL,
+                games INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS balance_tests (
                 id INTEGER PRIMARY KEY,
@@ -78,6 +88,30 @@ class Store:
             "SELECT MAX(medal) FROM scores WHERE profile_id = ? AND game = ? AND difficulty = ?",
             (pid, game, difficulty)).fetchone()
         return r[0] or 0
+
+    def add_session(self, pid, seconds, points, games):
+        self.conn.execute(
+            "INSERT INTO sessions (profile_id, day, ts, seconds, points, games) VALUES (?, ?, ?, ?, ?, ?)",
+            (pid, datetime.date.today().isoformat(), time.time(), seconds, points, games))
+        self.conn.commit()
+
+    def trained_today(self, pid):
+        r = self.conn.execute("SELECT COUNT(*) FROM sessions WHERE profile_id = ? AND day = ?",
+                              (pid, datetime.date.today().isoformat())).fetchone()
+        return r[0] > 0
+
+    def streak(self, pid):
+        """Giorni consecutivi di allenamento, contando da oggi (o da ieri se oggi non ancora fatto)."""
+        days = {r[0] for r in self.conn.execute(
+            "SELECT DISTINCT day FROM sessions WHERE profile_id = ?", (pid,))}
+        d = datetime.date.today()
+        if d.isoformat() not in days:
+            d -= datetime.timedelta(days=1)
+        n = 0
+        while d.isoformat() in days:
+            n += 1
+            d -= datetime.timedelta(days=1)
+        return n
 
     def add_balance_test(self, pid, score_still, score_follow, balance_age):
         self.conn.execute(

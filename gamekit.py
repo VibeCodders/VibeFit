@@ -1,4 +1,6 @@
 """Utilita' comuni ai giochi: forme low-poly, mascotte pinguino, classe base Game."""
+import random
+
 from panda3d.core import PerspectiveLens, TextNode
 
 
@@ -68,8 +70,10 @@ class Game:
     blurb = ""
     music = "action"
     duration = 45.0
+    cheer = True  # ogni tanto la voce incoraggia
 
     def __init__(self, app, diff):
+        self.cheer_t = random.uniform(10, 16)
         self.app = app
         self.loader = app.loader
         self.diff = diff  # 0 facile, 1 normale, 2 difficile
@@ -95,6 +99,11 @@ class Game:
     def tick(self, dt, inp):
         self.time_left -= dt
         self.update(dt, inp)
+        if self.cheer:
+            self.cheer_t -= dt
+            if self.cheer_t <= 0 and self.time_left > 5:
+                self.app.voice.say(random.choice(("cheer1", "cheer2", "cheer3")))
+                self.cheer_t = random.uniform(14, 22)
         self.hud_score["text"] = f"Punti: {int(self.score)}"
         self.hud_time["text"] = f"{max(self.time_left, 0):.0f} s"
         if self.time_left <= 0:

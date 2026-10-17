@@ -2,6 +2,7 @@
 import collections
 import datetime
 import math
+import random
 import time
 import types
 
@@ -14,7 +15,8 @@ from audio import Sound
 from balance_board import BOARD_LENGTH_MM, BOARD_WIDTH_MM, BalanceBoard
 from db import Store
 from games import GAMES
-from gamekit import clamp
+from games.yoga import POSES
+from voice import BASE, Voice
 
 loadPrcFileData("", "window-title VibeFit\nwin-size 1100 700")
 
@@ -44,6 +46,11 @@ class VibeFit(ShowBase):
         self.kb = [0.0, 0.0, 1.0]
         self.inp = types.SimpleNamespace(x=0.0, y=0.0, total=0.0, present=False)
         self.sound = Sound(self.loader)
+        phrases = dict(BASE)
+        phrases.update({f"blurb_{c.key}": c.blurb for c in GAMES})
+        phrases.update({f"pose_{i}": p[0] for i, p in enumerate(POSES)})
+        self.voice = Voice(self.loader, phrases)
+        self.session = None
         self._build_scene()
         self.accept("escape", self.userExit)
         self.accept("f11", self.toggle_fullscreen)
@@ -207,18 +214,24 @@ class VibeFit(ShowBase):
     # ---------- menu ----------
     def show_menu(self):
         self._screen(f"Ciao, {self.profile['name']}!")
+        self.session = None
         self.sound.music("menu")
-        items = [("Giochi", self.show_games), ("Pesati", self.show_weigh),
+        pid = self.profile["id"]
+        streak = self.store.streak(pid)
+        done = self.store.trained_today(pid)
+        self.label(f"Giorni di allenamento consecutivi: {streak}", (0, 0, 0.69), 0.05)
+        items = [("Allenamento di oggi" + (" (fatto)" if done else ""), self.show_session),
+                 ("Giochi", self.show_games), ("Pesati", self.show_weigh),
                  ("Test di equilibrio", self.show_balance), ("Storico peso", self.show_history),
                  ("Storico equilibrio", self.show_balance_history),
                  ("Cambia profilo", self.show_profiles), ("Esci", self.userExit)]
         for i, (text, cmd) in enumerate(items):
-            self.button(text, (0, 0, 0.58 - i * 0.16), cmd, scale=0.07, width=8)
-        self.button(f"Input: {'tastiera' if self.use_keyboard else 'board'}", (-0.6, 0, -0.62),
-                    self._toggle_input, scale=0.055, width=6)
-        self.button(f"Suono: {'off' if self.sound.muted else 'on'}", (0.6, 0, -0.62),
-                    self._toggle_sound, scale=0.055, width=6)
-        self.status = self.label("", (0, 0, -0.8), 0.055)
+            self.button(text, (0, 0, 0.57 - i * 0.145), cmd, scale=0.065, width=9)
+        for x, text, cmd in ((-0.85, f"Input: {'tastiera' if self.use_keyboard else 'board'}", self._toggle_input),
+                             (0.0, f"Suono: {'off' if self.sound.muted else 'on'}", self._toggle_sound),
+                             (0.85, f"Voce: {'on' if self.voice.enabled else 'off'}", self._toggle_voice)):
+            self.button(text, (x, 0, -0.68), cmd, scale=0.05, width=6)
+        self.status = self.label("", (0, 0, -0.85), 0.05)
 
     def _toggle_input(self):
         self.use_keyboard = not self.use_keyboard
@@ -227,6 +240,61 @@ class VibeFit(ShowBase):
     def _toggle_sound(self):
         self.sound.toggle_mute()
         self.show_menu()
+
+    def _toggle_voice(self):
+        self.voice.enabled = not self.voice.enabled
+        self.voice.stop()
+        self.show_menu()
+
+    # ---------- allenamento giornaliero ----------
+    # un esercizio per categoria: riscaldamento, forza, azione, equilibrio (defaticamento)
+    SESSION_PLAN = (("run", "hula"), ("squat", "jump"), ("slalom", "heading"), ("ice", "yoga"))
+
+    def show_session(self):
+        self._screen("Allenamento di oggi")
+        by_key = {c.key: c for c in GAMES}
+        rng = random.Random(f"{datetime.date.today().isoformat()}-{self.profile['id']}")
+        plan = [by_key[rng.choice(pair)] for pair in self.SESSION_PLAN]
+        self.session = {"plan": plan, "idx": 0, "results": [], "seconds": 0}
+        minutes = sum(c.duration for c in plan) / 60
+        for i, cls in enumerate(plan):
+            self.label(f"{i + 1}. {cls.title}  ({cls.duration:.0f} s)", (0, 0, 0.5 - i * 0.14), 0.07)
+        self.label(f"Durata totale circa {minutes:.0f} minuti - difficolta': {self.DIFF_NAMES[self.difficulty]}",
+                   (0, 0, -0.1), 0.055)
+        streak = self.store.streak(self.profile["id"])
+        self.label(f"Giorni consecutivi: {streak}", (0, 0, -0.22), 0.055)
+        self.button("Inizia", (0, 0, -0.5), self._session_begin, width=6)
+        self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
+
+    def _session_begin(self):
+        self.voice.say("session_start")
+        self._session_next()
+
+    def _session_next(self):
+        s = self.session
+        if s["idx"] >= len(s["plan"]):
+            return self._session_summary()
+        self.start_game(s["plan"][s["idx"]])
+
+    def _session_advance(self):
+        self.session["idx"] += 1
+        self._session_next()
+
+    def _session_summary(self):
+        s = self.session
+        total = sum(r[1] for r in s["results"])
+        self.store.add_session(self.profile["id"], int(s["seconds"]), total, len(s["results"]))
+        self._screen("Allenamento completato!")
+        self.sound.music(None)
+        self.sound.play("medal")
+        self.voice.say("session_done")
+        for i, (title, score, medal) in enumerate(s["results"]):
+            lab = self.label(f"{title}: {score} punti - {self.MEDAL_NAMES[medal] or 'nessuna medaglia'}",
+                             (0, 0, 0.55 - i * 0.13), 0.065)
+            lab["text_fg"] = self.MEDAL_COLORS[medal]
+        self.label(f"Totale: {total} punti in {s['seconds'] / 60:.1f} minuti", (0, 0, 0.0), 0.08)
+        self.label(f"Giorni consecutivi: {self.store.streak(self.profile['id'])}", (0, 0, -0.13), 0.06)
+        self.button("Menu", (0, 0, -0.45), self.show_menu, width=6)
 
     # ---------- giochi ----------
     MEDAL_NAMES = ("", "Bronzo", "Argento", "Oro")
@@ -289,8 +357,10 @@ class VibeFit(ShowBase):
         self.sound.music(None)
         self.msg = self.label("", (0, 0, 0.55), 0.09)
         self.big = self.label("", (0, 0, 0.0), 0.35)
-        self.button("Indietro", (1.15, 0, -0.85), self.show_games, scale=0.06, width=4)
+        self.button("Indietro", (1.15, 0, -0.85), self.show_menu if self.session else self.show_games,
+                    scale=0.06, width=4)
         self.phase = "step" if (self.use_keyboard or self.tared) else "empty"
+        self.intro_until = None
         self.empty_since = None
         self.phase_t = 0.0
         self.count_last = None
@@ -314,11 +384,13 @@ class VibeFit(ShowBase):
                 self.phase = "step"
         elif self.phase == "step":
             self.big["text"] = ""
-            if self.inp.present:
-                self.msg["text"] = self.cls.blurb
+            self.msg["text"] = self.cls.blurb
+            if self.intro_until is None:  # la voce spiega il gioco prima del conto alla rovescia
+                self.intro_until = now + self.voice.say(f"blurb_{self.cls.key}")
+            if self.inp.present and now >= self.intro_until:
                 self.phase, self.phase_t = "count", 0.0
                 self.count_last = None
-            else:
+            elif not self.inp.present:
                 self.msg["text"] = "Sali sulla board per iniziare"
         elif self.phase == "count":
             self.phase_t += dt
@@ -330,6 +402,7 @@ class VibeFit(ShowBase):
                     self.big["text"] = str(n)
             if self.phase_t >= 3:
                 self.sound.play("go")
+                self.voice.say("go")
                 self.big["text"] = ""
                 self.msg["text"] = ""
                 self.game = self.cls(self, self.difficulty)
@@ -354,6 +427,8 @@ class VibeFit(ShowBase):
         self._screen(cls.title)
         self.sound.music(None)
         self.sound.play("medal" if medal else "fail")
+        record = prev is not None and score > prev
+        self.voice.say("record" if record else ("nomedal", "bronze", "silver", "gold")[medal])
         self.label(f"{score} punti", (0, 0, 0.5), 0.2)
         m = self.label(self.MEDAL_NAMES[medal] and f"Medaglia: {self.MEDAL_NAMES[medal]}" or "Nessuna medaglia",
                        (0, 0, 0.28), 0.1)
@@ -363,8 +438,15 @@ class VibeFit(ShowBase):
         else:
             self.label(f"Record: {prev}", (0, 0, 0.12), 0.07)
         self.label(f"Soglie: bronzo {bronze:.0f} - argento {silver:.0f} - oro {gold:.0f}", (0, 0, -0.02), 0.05)
-        self.button("Rigioca", (-0.45, 0, -0.4), lambda: self.start_game(cls), width=5)
-        self.button("Giochi", (0.45, 0, -0.4), self.show_games, width=5)
+        if self.session:
+            s = self.session
+            s["results"].append((cls.title, score, medal))
+            s["seconds"] += cls.duration
+            last = s["idx"] + 1 >= len(s["plan"])
+            self.button("Riepilogo" if last else "Avanti", (0, 0, -0.4), self._session_advance, width=6)
+        else:
+            self.button("Rigioca", (-0.45, 0, -0.4), lambda: self.start_game(cls), width=5)
+            self.button("Giochi", (0.45, 0, -0.4), self.show_games, width=5)
 
     def ensure_board(self):
         if self.board.connected:
