@@ -3,14 +3,18 @@ import collections
 import datetime
 import math
 import time
+import types
 
 from direct.gui.DirectGui import DirectButton, DirectEntry, DirectFrame, DirectLabel
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import (AmbientLight, DirectionalLight, LineSegs, OrthographicLens, TextNode,
-                          loadPrcFileData)
+                          WindowProperties, loadPrcFileData)
 
+from audio import Sound
 from balance_board import BOARD_LENGTH_MM, BOARD_WIDTH_MM, BalanceBoard
 from db import Store
+from games import GAMES
+from gamekit import clamp
 
 loadPrcFileData("", "window-title VibeFit\nwin-size 1100 700")
 
@@ -33,9 +37,48 @@ class VibeFit(ShowBase):
         self.tared = False
         self.root = None
         self.task = None
+        self.game = None
+        self.difficulty = 1  # 0 facile, 1 normale, 2 difficile
+        self.use_keyboard = False
+        self.keys = set()
+        self.kb = [0.0, 0.0]
+        self.inp = types.SimpleNamespace(x=0.0, y=0.0, total=0.0, present=False)
+        self.sound = Sound(self.loader)
         self._build_scene()
         self.accept("escape", self.userExit)
+        self.accept("f11", self.toggle_fullscreen)
+        self.accept("aspectRatioChanged", self._on_aspect)
+        for k in ("arrow_left", "arrow_right", "arrow_up", "arrow_down"):
+            self.accept(k, self.keys.add, [k])
+            self.accept(k + "-up", self.keys.discard, [k])
+        self.sound.music("menu")
         self.show_profiles()
+
+    # ---------- finestra e camera ----------
+    def toggle_fullscreen(self):
+        props = WindowProperties()
+        if self.win.isFullscreen():
+            props.setFullscreen(False)
+            props.setSize(1100, 700)
+        else:
+            props.setFullscreen(True)
+            props.setSize(self.pipe.getDisplayWidth(), self.pipe.getDisplayHeight())
+        self.win.requestProperties(props)
+
+    def _on_aspect(self):
+        lens = self.cam.node().getLens()
+        if isinstance(lens, OrthographicLens):
+            lens.setFilmSize(8.0, 8.0 / self.getAspectRatio())
+        else:
+            lens.setAspectRatio(self.getAspectRatio())
+
+    def _topdown(self):
+        """Camera ortografica dall'alto, usata da pesata e test di equilibrio."""
+        self.camera.setPos(0, 0, 20)
+        self.camera.setHpr(0, -90, 0)
+        self.ortho.setFilmSize(8.0, 8.0 / self.getAspectRatio())
+        self.cam.node().setLens(self.ortho)
+        self.setBackgroundColor(*BG)
 
     # ---------- scena 3D (visibile solo durante la pesata) ----------
     def _build_scene(self):
@@ -44,10 +87,9 @@ class VibeFit(ShowBase):
         # vista dall'alto, ortografica: la board appare piatta e frontale
         self.camera.setPos(0, 0, 20)
         self.camera.setHpr(0, -90, 0)
-        lens = OrthographicLens()
-        lens.setFilmSize(8.0, 8.0 / self.getAspectRatio())
-        lens.setNearFar(1, 100)
-        self.cam.node().setLens(lens)
+        self.ortho = OrthographicLens()
+        self.ortho.setNearFar(1, 100)
+        self._topdown()
         light = DirectionalLight("sun")
         light.setColor((0.9, 0.9, 0.85, 1))
         ln = self.render.attachNewNode(light)
@@ -90,10 +132,14 @@ class VibeFit(ShowBase):
         if self.task:
             self.taskMgr.remove(self.task)
             self.task = None
+        if self.game:
+            self.game.cleanup()
+            self.game = None
         if self.root:
             self.root.destroy()
         self.scene.hide()
         self.target.hide()
+        self._topdown()
         self.root = DirectFrame(frameColor=(0, 0, 0, 0))
         if title:
             self.label(title, (0, 0, 0.8), 0.12)
@@ -106,7 +152,7 @@ class VibeFit(ShowBase):
     def button(self, text, pos, cmd, scale=0.08, width=7):
         return DirectButton(parent=self.root, text=text, pos=pos, scale=scale, command=cmd,
                             frameColor=BTN, text_fg=(1, 1, 1, 1), frameSize=(-width, width, -0.8, 1.0),
-                            relief=1, pressEffect=1)
+                            relief=1, pressEffect=1, clickSound=self.sound.sfx["click"])
 
     def entry(self, pos, initial=""):
         return DirectEntry(parent=self.root, pos=pos, scale=0.07, initialText=initial, width=14,
