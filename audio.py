@@ -6,6 +6,7 @@ import pathlib
 import wave
 
 import numpy as np
+from panda3d.core import Filename
 
 SR = 22050
 OUT = pathlib.Path(__file__).with_name("assets") / "audio"
@@ -125,8 +126,9 @@ class Sound:
     def __init__(self, loader):
         generate_all()
         self.loader = loader
-        self.sfx = {p.stem: loader.loadSfx(str(p)) for p in OUT.glob("*.wav") if not p.stem.startswith("music")}
-        self.tracks = {p.stem[6:]: loader.loadMusic(str(p)) for p in OUT.glob("music_*.wav")}
+        fn = lambda p: Filename.fromOsSpecific(str(p))  # noqa: E731
+        self.sfx = {p.stem: loader.loadSfx(fn(p)) for p in OUT.glob("*.wav") if not p.stem.startswith("music")}
+        self.tracks = {p.stem[6:]: loader.loadMusic(fn(p)) for p in OUT.glob("music_*.wav")}
         self.current = None
         self.muted = False
 
