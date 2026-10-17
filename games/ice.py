@@ -22,8 +22,8 @@ class IceBalance(Game):
         self.lives = (5, 3, 3)[d]
         perspective(self.app, 55)
         self.app.setBackgroundColor(0.45, 0.7, 0.85, 1)
-        self.app.camera.setPos(0, -8.5, 11)
-        self.app.camera.lookAt(0, 0.6, 0)
+        self.app.camera.setPos(0, -9.5, 14)
+        self.app.camera.lookAt(0, 0.3, 0)
         L = self.loader
         self.sea = box(self.root, L, (60, 60, 0.1), (0.15, 0.4, 0.65), (0, 0, -0.9))
         self.plat = self.root.attachNewNode("plat")
@@ -58,7 +58,7 @@ class IceBalance(Game):
         lx, ly = clamp(inp.x / 110.0), clamp(inp.y / 70.0)
         self.plat.setHpr(0, -ly * 8, lx * 8)
         self.fish.setH(self.fish.getH() + 90 * dt)
-        self.hud_msg["text"] = "Vite: " + "O" * self.lives if self.lives else ""
+        self.hud_msg["text"] = f"Vite: {self.lives}"
 
         if self.fallen > 0:
             self.fallen -= dt
