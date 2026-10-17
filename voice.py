@@ -2,7 +2,6 @@
 
 Se la voce italiana non e' installata, il gioco funziona senza voce.
 """
-import pathlib
 import subprocess
 import sys
 

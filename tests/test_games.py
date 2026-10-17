@@ -181,7 +181,6 @@ def test_pearls_penguin_follows_the_weight(app):
 
 def test_pearls_collects_pearls_when_standing_on_them(app):
     g = Pearls(app, 0)
-    inp_feed = lambda t: {}  # noqa: E731
     # mette il pinguino sopra la prima perla ogni frame
     t, dt = 0.0, 1 / 60
     import tests.conftest as c
@@ -286,9 +285,12 @@ def test_yoga_uses_saved_calibration_without_asking(base):
 
 @pytest.mark.parametrize("cls", GAMES)
 def test_standing_still_does_not_earn_a_medal(app, cls):
-    """Nessun gioco deve regalare medaglie a chi sta fermo (a difficolta' normale)."""
+    """Nessun gioco deve regalare medaglie a chi sta fermo: a tutte le difficolta' e con piu' semi casuali."""
     import random
-    random.seed(7)
-    g = run(cls(app, 1), cls.duration + 5, lambda t: {"x": 0.0, "y": 0.0})
-    bronze = g.medals()[0]
-    assert g.score < bronze, f"{cls.key}: {g.score} >= bronzo {bronze}"
+    for diff in (0, 1, 2):
+        for seed in range(3):
+            random.seed(seed)
+            g = run(cls(app, diff), cls.duration + 5, lambda t: {"x": 0.0, "y": 0.0}, dt=1 / 20)
+            bronze = g.medals()[0]
+            assert g.score < bronze, f"{cls.key} diff={diff} seed={seed}: {g.score} >= bronzo {bronze}"
+            g.cleanup()

@@ -9,7 +9,7 @@ import types
 from direct.gui import DirectGuiGlobals as DGG
 from direct.gui.DirectGui import DirectButton, DirectEntry, DirectFrame, DirectLabel
 from direct.showbase.ShowBase import ShowBase
-from panda3d.core import (AmbientLight, CardMaker, DirectionalLight, LineSegs, OrthographicLens, TextNode,
+from panda3d.core import (AmbientLight, CardMaker, ClockObject, DirectionalLight, LineSegs, OrthographicLens, TextNode,
                           TransparencyAttrib, WindowProperties, loadPrcFileData)
 
 import ui
@@ -26,6 +26,7 @@ from voice import BASE, Voice
 loadPrcFileData("", "window-title VibeFit\nwin-size 1100 700")
 
 SCALE = 0.01
+clock = ClockObject.getGlobalClock()  # orologio di Panda3D (dt tra i frame)
 BG = (0.55, 0.78, 0.9, 1)
 BTN = (0.2, 0.55, 0.45, 1)
 FOCUS = (0.95, 0.6, 0.15, 1)  # pulsante selezionato con la board
@@ -97,7 +98,7 @@ class VibeFit(ExtraScreens, ShowBase):
         if self.task is not None or self.use_keyboard or not self.board.healthy:
             self.nav.empty = 0.0
             return task.cont
-        dt, n = globalClock.getDt(), self.nav
+        dt, n = clock.getDt(), self.nav
         raw = self.board.kg
         if abs(sum(raw)) < 4.0:  # board vuota: la azzera
             n.empty += dt
@@ -186,7 +187,7 @@ class VibeFit(ExtraScreens, ShowBase):
 
     def _fade_task(self, task):
         if self.fade_a > 0:
-            self.fade_a = max(0.0, self.fade_a - globalClock.getDt() * 2.2)
+            self.fade_a = max(0.0, self.fade_a - clock.getDt() * 2.2)
             self.fade.setColor(0, 0, 0, self.fade_a)
         return task.cont
 
@@ -196,10 +197,10 @@ class VibeFit(ExtraScreens, ShowBase):
             self.confetti.burst((x, -1.0, 2.6), colors, n=22, speed=2.5, life=2.2, size=0.11, up=5.0, gravity=-4.0)
 
     def _mascot_task(self, task):
-        self.confetti.update(globalClock.getDt())
+        self.confetti.update(clock.getDt())
         if self.mascot.isHidden():
             return task.cont
-        self.mascot_t += globalClock.getDt()
+        self.mascot_t += clock.getDt()
         t, p = self.mascot_t, self.peng
         blink = (t % 3.6) < 0.12
         for e, sz in self.mascot_eyes:
@@ -592,7 +593,7 @@ class VibeFit(ExtraScreens, ShowBase):
         self.task = self.taskMgr.add(self._game_task, "game")
 
     def _game_task(self, task):
-        dt = min(globalClock.getDt(), 0.1)
+        dt = min(clock.getDt(), 0.1)
         now = time.time()
         self._read_input(dt)
         if self.phase == "empty":

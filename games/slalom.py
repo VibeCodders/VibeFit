@@ -1,5 +1,4 @@
 """Slalom sugli sci: inclinati a destra e a sinistra per passare tra le porte."""
-import math
 import random
 
 from fx import Clouds, follow_shadow, make_shadow, mountains, sun
@@ -40,6 +39,7 @@ class Slalom(Game):
         self.gates = []
         self.trees = []
         self.cx = 0.0
+        self.side = random.choice((-1, 1))
         self.next_gate = FIRST_GATE
         self.next_tree = 6.0
         self.msg_t = 0.0
@@ -49,7 +49,8 @@ class Slalom(Game):
     def _spawn(self, upto):
         L = self.loader
         while self.next_gate < upto:
-            self.cx = clamp(self.cx + random.uniform(-3.5, 3.5), -(W - 2.2), W - 2.2)
+            self.side = -self.side  # le porte alternano sinistra e destra: stare al centro non basta
+            self.cx = self.side * random.uniform(2.4, W - 2.2)
             nodes = []
             for s, col in ((-1, (0.9, 0.15, 0.15)), (1, (0.15, 0.3, 0.9))):
                 x = self.cx + s * self.gate_w / 2

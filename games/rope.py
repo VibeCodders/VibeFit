@@ -2,8 +2,8 @@
 import math
 import random
 
-from fx import Clouds, follow_shadow, make_shadow, sun
-from gamekit import Game, blob, box, clamp, make_penguin, perspective, set_flippers
+from fx import Clouds, make_shadow, sun
+from gamekit import Game, box, clamp, make_penguin, perspective, set_flippers
 
 WALK = 2.2  # metri al secondo quando sei stabile
 
@@ -18,9 +18,9 @@ class Rope(Game):
 
     def setup(self):
         d = self.diff
-        self.drift = (0.9, 1.3, 1.8)[d]  # quanto in fretta cade da solo
-        self.wind_amp = (0.3, 0.5, 0.75)[d]
-        self.gain = 2.8  # efficacia dello spostamento del peso
+        self.drift = (1.2, 1.6, 2.0)[d]  # quanto in fretta cade da solo
+        self.wind_amp = (0.4, 0.55, 0.8)[d]
+        self.gain = 3.4  # efficacia dello spostamento del peso
         self.lives = (5, 3, 3)[d]
         perspective(self.app, 60)
         self.app.setBackgroundColor(0.55, 0.76, 0.96, 1)
@@ -49,7 +49,7 @@ class Rope(Game):
         self.misses = 0
 
     def medals(self):
-        return ((350, 600, 800), (400, 650, 850), (450, 700, 900))[self.diff]
+        return ((500, 750, 900), (550, 780, 920), (600, 820, 940))[self.diff]
 
     def update(self, dt, inp):
         self.t += dt
@@ -92,7 +92,7 @@ class Rope(Game):
 
         walk = WALK * (1.0 if abs(self.a) < 0.6 else 0.5)
         self.dist += walk * dt
-        self.score = int(self.dist * 10)
+        self.score = max(0, int(self.dist * 10) - 80 * self.misses)  # ogni caduta costa 80 punti
         bob = abs(math.sin(self.t * 5)) * 0.05
         self.peng.setPos(0, self.dist, 0.08 + bob)
         self.peng.setR(self.a * 35)

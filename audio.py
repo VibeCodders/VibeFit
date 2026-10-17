@@ -2,7 +2,6 @@
 
 I WAV vengono generati una volta in assets/audio/ e poi caricati da Panda3D.
 """
-import pathlib
 import wave
 
 import numpy as np
@@ -33,7 +32,7 @@ def _env(n, attack=0.005, release=0.08):
 
 def tone(f, dur, shape="square", vol=0.3, f_end=None):
     n = int(dur * SR)
-    t = np.arange(n) / SR
+    np.arange(n) / SR
     fs = np.linspace(f, f_end if f_end else f, n)
     phase = 2 * np.pi * np.cumsum(fs) / SR
     if shape == "square":

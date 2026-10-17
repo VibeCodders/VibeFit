@@ -1,3 +1,5 @@
 __pycache__/
 vibefit.db
 assets/voice/
+build/
+dist/

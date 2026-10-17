@@ -92,7 +92,7 @@ class Dance(Game):
             col = list(PADS.values())[i % 4][1]
             k = 0.5 + 0.5 * (1 - beat_phase)
             b.setColor(col[0] * k, col[1] * k, col[2] * k, 1)
-        pulse = 1.0 - beat_phase
+        1.0 - beat_phase
         for k, p in self.pads.items():
             p["ring"].setColor(*p["col"], 0.0)
         # animazione del pinguino: si sposta leggermente nella direzione del baricentro e balla

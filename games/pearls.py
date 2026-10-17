@@ -2,7 +2,6 @@
 import math
 import random
 
-from fx import Clouds
 from gamekit import Game, blob, box, clamp, make_penguin, perspective, set_flippers
 
 XR, YR = 6.2, 3.6  # semi-dimensioni del fondale

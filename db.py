@@ -1,6 +1,5 @@
 """Archivio locale (SQLite) di profili e pesate."""
 import datetime
-import pathlib
 import sqlite3
 import time
 
