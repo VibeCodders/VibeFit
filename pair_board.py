@@ -46,6 +46,18 @@ class DeviceInfo(ctypes.Structure):
                 ("szName", ctypes.c_wchar * 248)]
 
 
+H = wintypes.HANDLE
+bt.BluetoothFindFirstRadio.argtypes = [ctypes.c_void_p, ctypes.POINTER(H)]
+bt.BluetoothFindFirstRadio.restype = H
+bt.BluetoothFindRadioClose.argtypes = [H]
+bt.BluetoothGetRadioInfo.argtypes = [H, ctypes.c_void_p]
+bt.BluetoothFindFirstDevice.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+bt.BluetoothFindFirstDevice.restype = H
+bt.BluetoothFindNextDevice.argtypes = [H, ctypes.c_void_p]
+bt.BluetoothFindDeviceClose.argtypes = [H]
+bt.BluetoothSetServiceState.argtypes = [H, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD]
+
+
 def fmt(addr):
     return ":".join(f"{b:02X}" for b in addr.to_bytes(6, "big"))
 
@@ -53,7 +65,6 @@ def fmt(addr):
 def find_radio():
     params = FindRadioParams(ctypes.sizeof(FindRadioParams))
     h = wintypes.HANDLE()
-    bt.BluetoothFindFirstRadio.restype = wintypes.HANDLE
     find = bt.BluetoothFindFirstRadio(ctypes.byref(params), ctypes.byref(h))
     if not find:
         raise SystemExit("Nessun adattatore Bluetooth trovato.")
@@ -66,8 +77,7 @@ def find_radio():
 def scan(radio):
     sp = SearchParams(ctypes.sizeof(SearchParams), True, True, True, True, True, 8, radio)
     di = DeviceInfo(dwSize=ctypes.sizeof(DeviceInfo))
-    bt.BluetoothFindFirstDevice.restype = wintypes.HANDLE
-    h = bt.BluetoothFindFirstDevice(ctypes.byref(sp), ctypes.byref(di))
+    h =bt.BluetoothFindFirstDevice(ctypes.byref(sp), ctypes.byref(di))
     found = []
     if not h:
         return found
