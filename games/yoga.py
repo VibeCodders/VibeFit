@@ -1,5 +1,5 @@
 """Yoga: prendi la posa e mantieni il baricentro dentro la zona verde per 10 secondi."""
-from gamekit import Game, blob, box, make_penguin, perspective
+from gamekit import Game, blob, box, make_penguin, perspective, set_flippers
 
 MM = 0.008  # 1 mm di baricentro = 0.008 unita' nel pannello
 PANEL = (3.9, 0.0, 1.7)  # centro del pannello nella scena
@@ -62,26 +62,24 @@ class Yoga(Game):
         p = self.peng
         p.setScale(1.1)
         p.setP(0)
+        set_flippers(p, 25)
         for s in (-1, 1):
-            self.parts["flippers"][s].setR(s * 25)
             f = self.parts["feet"][s]
             f.setZ(0)
             f.setX(s * 0.2)
         if kind == "tree":
             raised = sign  # il piede sollevato e' dal lato locale opposto all'appoggio sullo schermo
             self.parts["feet"][raised].setZ(0.5)
-            for s in (-1, 1):
-                self.parts["flippers"][s].setR(s * 160)
+            set_flippers(p, 160)  # braccia alzate sopra la testa
         elif kind == "warrior":
             p.setP(-12)
+            set_flippers(p, 90)
             for s in (-1, 1):
-                self.parts["flippers"][s].setR(s * 90)
                 self.parts["feet"][s].setX(s * 0.5)
         elif kind == "chair":
             p.setScale(1.1, 1.1, 0.85)
             p.setP(8)
-            for s in (-1, 1):
-                self.parts["flippers"][s].setR(s * 70)
+            set_flippers(p, 70)
 
     def update(self, dt, inp):
         self.marker.setPos(max(-216, min(216, inp.x)) * MM, 0, max(-119, min(119, inp.y)) * MM)

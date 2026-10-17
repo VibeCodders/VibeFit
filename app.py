@@ -15,6 +15,7 @@ from audio import Sound
 from balance_board import BOARD_LENGTH_MM, BOARD_WIDTH_MM, BalanceBoard
 from db import Store
 from games import GAMES
+from gamekit import blob, make_penguin, perspective, set_flippers
 from games.yoga import POSES
 from voice import BASE, Voice
 
@@ -52,6 +53,7 @@ class VibeFit(ShowBase):
         self.voice = Voice(self.loader, phrases)
         self.session = None
         self._build_scene()
+        self._build_mascot()
         self.accept("escape", self.userExit)
         self.accept("f11", self.toggle_fullscreen)
         self.accept("aspectRatioChanged", self._on_aspect)
@@ -86,6 +88,48 @@ class VibeFit(ShowBase):
         self.ortho.setFilmSize(8.0, 8.0 / self.getAspectRatio())
         self.cam.node().setLens(self.ortho)
         self.setBackgroundColor(*BG)
+
+    # ---------- mascotte (menu e risultati) ----------
+    def _build_mascot(self):
+        self.mascot = self.render.attachNewNode("mascot")
+        self.mascot.setPos(-2.5, 0, 0)
+        blob(self.mascot, self.loader, (1.1, 1.1, 0.12), (0.92, 0.97, 1.0), (0, 0, -0.1))
+        self.peng = make_penguin(self.mascot, self.loader)
+        self.peng.setScale(0.95)
+        self.peng.setH(205)  # guarda verso il menu
+        self.mascot_eyes = [(e, e.getSz()) for e in self.peng.getPythonTag("parts")["eyes"]]
+        self.mascot_mood = "idle"
+        self.mascot_t = 0.0
+        self.mascot.hide()
+        self.taskMgr.add(self._mascot_task, "mascot")
+
+    def _mascot_task(self, task):
+        if self.mascot.isHidden():
+            return task.cont
+        self.mascot_t += globalClock.getDt()
+        t, p = self.mascot_t, self.peng
+        blink = (t % 3.6) < 0.12
+        for e, sz in self.mascot_eyes:
+            e.setSz(sz * (0.12 if blink else 1.0))
+        if self.mascot_mood == "happy":
+            p.setZ(abs(math.sin(t * 5)) * 0.6)
+            p.setP(0)
+            set_flippers(p, 150 + 12 * math.sin(t * 10))
+        elif self.mascot_mood == "sad":
+            p.setZ(0)
+            p.setP(10)
+            set_flippers(p, 5)
+        else:
+            p.setZ(0.03 * math.sin(t * 2))
+            p.setP(0)
+            set_flippers(p, 25)
+            set_flippers(p, 125 + 25 * math.sin(t * 8), side=-1)  # saluta con un'ala
+        return task.cont
+
+    def _mascot_camera(self):
+        perspective(self, 40)
+        self.camera.setPos(0, -9, 0.9)
+        self.camera.lookAt(0, 0, 0.6)
 
     # ---------- scena 3D (visibile solo durante la pesata) ----------
     def _build_scene(self):
@@ -135,7 +179,8 @@ class VibeFit(ShowBase):
         self.target.setZ(0.0)  # sotto il marker, cosi' la pallina rossa resta visibile
 
     # ---------- utilita' GUI ----------
-    def _screen(self, title=None):
+    def _screen(self, title=None, mascot=None):
+        """Nuova schermata. mascot = 'idle' | 'happy' | 'sad' per mostrare il pinguino a sinistra."""
         if self.task:
             self.taskMgr.remove(self.task)
             self.task = None
@@ -146,7 +191,12 @@ class VibeFit(ShowBase):
             self.root.destroy()
         self.scene.hide()
         self.target.hide()
+        self.mascot.hide()
         self._topdown()
+        if mascot:
+            self.mascot_mood = mascot
+            self.mascot.show()
+            self._mascot_camera()
         self.root = DirectFrame(frameColor=(0, 0, 0, 0))
         if title:
             self.label(title, (0, 0, 0.8), 0.12)
@@ -167,7 +217,7 @@ class VibeFit(ShowBase):
 
     # ---------- profili ----------
     def show_profiles(self):
-        self._screen("Chi sei?")
+        self._screen("Chi sei?", mascot="idle")
         profiles = self.store.list_profiles()
         y = 0.55
         for p in profiles[:7]:
@@ -213,7 +263,7 @@ class VibeFit(ShowBase):
 
     # ---------- menu ----------
     def show_menu(self):
-        self._screen(f"Ciao, {self.profile['name']}!")
+        self._screen(f"Ciao, {self.profile['name']}!", mascot="idle")
         self.session = None
         self.sound.music("menu")
         pid = self.profile["id"]
@@ -251,7 +301,7 @@ class VibeFit(ShowBase):
     SESSION_PLAN = (("run", "hula"), ("squat", "jump"), ("slalom", "heading"), ("ice", "yoga"))
 
     def show_session(self):
-        self._screen("Allenamento di oggi")
+        self._screen("Allenamento di oggi", mascot="idle")
         by_key = {c.key: c for c in GAMES}
         rng = random.Random(f"{datetime.date.today().isoformat()}-{self.profile['id']}")
         plan = [by_key[rng.choice(pair)] for pair in self.SESSION_PLAN]
@@ -284,7 +334,7 @@ class VibeFit(ShowBase):
         s = self.session
         total = sum(r[1] for r in s["results"])
         self.store.add_session(self.profile["id"], int(s["seconds"]), total, len(s["results"]))
-        self._screen("Allenamento completato!")
+        self._screen("Allenamento completato!", mascot="happy")
         self.sound.music(None)
         self.sound.play("medal")
         self.voice.say("session_done")
@@ -424,7 +474,7 @@ class VibeFit(ShowBase):
         prev = self.store.best_score(pid, game.key, game.diff)
         self.store.add_score(pid, game.key, game.diff, score, medal)
         cls = type(game)
-        self._screen(cls.title)
+        self._screen(cls.title, mascot="happy" if medal else "sad")
         self.sound.music(None)
         self.sound.play("medal" if medal else "fail")
         record = prev is not None and score > prev
@@ -443,10 +493,10 @@ class VibeFit(ShowBase):
             s["results"].append((cls.title, score, medal))
             s["seconds"] += cls.duration
             last = s["idx"] + 1 >= len(s["plan"])
-            self.button("Riepilogo" if last else "Avanti", (0, 0, -0.4), self._session_advance, width=6)
+            self.button("Riepilogo" if last else "Avanti", (0.2, 0, -0.55), self._session_advance, width=6)
         else:
-            self.button("Rigioca", (-0.45, 0, -0.4), lambda: self.start_game(cls), width=5)
-            self.button("Giochi", (0.45, 0, -0.4), self.show_games, width=5)
+            self.button("Rigioca", (-0.15, 0, -0.55), lambda: self.start_game(cls), width=5)
+            self.button("Giochi", (0.75, 0, -0.55), self.show_games, width=5)
 
     def ensure_board(self):
         if self.board.connected:

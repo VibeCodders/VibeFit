@@ -40,15 +40,27 @@ def make_penguin(parent, loader):
     blob(p, loader, (0.5, 0.42, 0.65), dark, (0, 0, 0.7))
     blob(p, loader, (0.38, 0.3, 0.52), white, (0, 0.17, 0.66))
     blob(p, loader, (0.36, 0.34, 0.34), dark, (0, 0.02, 1.3))
-    feet, flippers = {}, {}
+    feet, flippers, eyes = {}, {}, []
     for s in (-1, 1):
-        blob(p, loader, (0.09, 0.07, 0.09), white, (s * 0.14, 0.28, 1.38))
-        blob(p, loader, (0.04, 0.04, 0.04), dark, (s * 0.14, 0.34, 1.38))
-        flippers[s] = blob(p, loader, (0.1, 0.25, 0.4), dark, (s * 0.52, 0, 0.72), (0, 0, s * 25))
+        eyes.append(blob(p, loader, (0.09, 0.07, 0.09), white, (s * 0.14, 0.28, 1.38)))
+        eyes.append(blob(p, loader, (0.04, 0.04, 0.04), dark, (s * 0.14, 0.34, 1.38)))
+        pivot = p.attachNewNode("flipper")  # l'ala ruota attorno alla spalla
+        pivot.setPos(s * 0.48, 0, 0.98)
+        blob(pivot, loader, (0.1, 0.25, 0.4), dark, (0, 0, -0.3))
+        flippers[s] = pivot
         feet[s] = box(p, loader, (0.22, 0.4, 0.08), orange, (s * 0.2, 0.18, 0.04))
     blob(p, loader, (0.1, 0.2, 0.07), orange, (0, 0.34, 1.25))
-    p.setPythonTag("parts", {"feet": feet, "flippers": flippers})  # per le pose (yoga)
+    p.setPythonTag("parts", {"feet": feet, "flippers": flippers, "eyes": eyes})
+    set_flippers(p, 25)
     return p
+
+
+def set_flippers(penguin, angle, side=None):
+    """Angolo delle ali dal corpo: 0 = lungo il corpo, 90 = orizzontali, 155 = alzate."""
+    fl = penguin.getPythonTag("parts")["flippers"]
+    for s in (-1, 1):
+        if side is None or s == side:
+            fl[s].setR(-s * angle)
 
 
 def perspective(app, fov=60):
