@@ -37,7 +37,9 @@ class Jump(Game):
                 (-3.0, 0, k * 0.1 * VISUAL_SCALE))
         self.record = box(self.root, L, (3.0, 0.05, 0.04), (0.9, 0.2, 0.25), (0, 0, -1.0))
         self.base = None
-        self.cal_t = self.cal_sum = self.cal_n = 0
+        self.cal_t = 0.0
+        self.cal = []
+        self.stable_t = 0.0
         self.air = False
         self.air_t = 0.0
         self.best = 0.0
@@ -53,17 +55,22 @@ class Jump(Game):
         if self.base is None:  # calibrazione: in piedi, fermo
             self.time_left += dt
             self.cal_t += dt
-            self.cal_sum += inp.total
-            self.cal_n += 1
+            self.cal.append(inp.total)
             self.hud_msg["text"] = "Resta in piedi, fermo..."
             if self.cal_t >= 1.5:
-                self.base = max(self.cal_sum / self.cal_n, 1.0)
+                self.base = max(sum(self.cal) / len(self.cal), 1.0)
                 self.hud_msg["text"] = "Salta!"
                 self.app.sound.play("ok")
             return
         ratio = inp.total / self.base
         self.clouds.update(dt)
         if not self.air:
+            if 0.85 < ratio < 1.15:  # la base segue le derive lente quando sei fermo a terra
+                self.stable_t += dt
+                if self.stable_t > 1.0:
+                    self.base += (inp.total - self.base) * min(1.0, 0.5 * dt)
+            else:
+                self.stable_t = 0.0
             if ratio < 0.25:
                 self.air, self.air_t = True, 0.0
         else:

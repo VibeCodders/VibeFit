@@ -51,6 +51,7 @@ class VibeFit(ExtraScreens, ShowBase):
         self.difficulty = int(self.store.get_setting("difficulty", 1))  # 0 facile, 1 normale, 2 difficile
         self.use_keyboard = self.store.get_setting("keyboard", "0") == "1"
         self.nav_board = self.store.get_setting("nav_board", "0") == "1"
+        self.sensitivity = float(self.store.get_setting("sensitivity", 1.0))
         self.weekly_goal = int(self.store.get_setting("goal_min", 30))
         self.nav = types.SimpleNamespace(cool=0.0, hold_r=0.0, hold_l=0.0, empty=0.0)
         self.keys = set()
@@ -455,7 +456,8 @@ class VibeFit(ExtraScreens, ShowBase):
 
     # ---------- allenamento giornaliero ----------
     # un esercizio per categoria: riscaldamento, forza, azione, equilibrio (defaticamento)
-    SESSION_PLAN = (("run", "hula"), ("squat", "jump"), ("slalom", "heading"), ("ice", "yoga"))
+    SESSION_PLAN = (("run", "hula", "dance"), ("squat", "jump"), ("slalom", "heading", "pearls"),
+                    ("ice", "yoga", "rope"))
 
     def show_session(self):
         self._screen("Allenamento di oggi", mascot="idle")
@@ -516,11 +518,14 @@ class VibeFit(ExtraScreens, ShowBase):
                             scale=0.06, width=4)
             if d != self.difficulty:
                 self.paint(b, (0.45, 0.6, 0.55, 1))
+        rows = (len(GAMES) + 1) // 2  # due colonne
         for i, cls in enumerate(GAMES):
-            y = 0.44 - i * 0.135
-            self.button(cls.title, (-0.35, 0, y), lambda c=cls: self.start_game(c), scale=0.06, width=9)
+            col, row = divmod(i, rows)
+            x, y = (-0.85, 0.44) if col == 0 else (0.85, 0.44)
+            y -= row * 0.135
+            self.button(cls.title, (x, 0, y), lambda c=cls: self.start_game(c), scale=0.05, width=9)
             medal = self.store.best_medal(self.profile["id"], cls.key, self.difficulty)
-            lab = self.label(self.MEDAL_NAMES[medal] or "-", (0.85, 0, y), 0.06)
+            lab = self.label(self.MEDAL_NAMES[medal] or "-", (x + 0.58, 0, y), 0.045)
             lab["text_fg"] = self.MEDAL_COLORS[medal]
         self.label("Input: " + ("tastiera (frecce, W/S = peso, SPAZIO = volo)" if self.use_keyboard else "board"),
                    (0, 0, -0.75), 0.05)
@@ -530,6 +535,13 @@ class VibeFit(ExtraScreens, ShowBase):
         self.difficulty = d
         self.store.set_setting("difficulty", d)
         (then or self.show_games)()
+
+    def get_yoga_shift(self):
+        v = self.store.get_setting(f"yoga_shift_{self.profile['id']}", "")
+        return float(v) if v else None
+
+    def set_yoga_shift(self, value):
+        self.store.set_setting(f"yoga_shift_{self.profile['id']}", "" if value is None else value)
 
     def _read_input(self, dt):
         """Aggiorna self.inp da board (con azzeramento) o da tastiera."""
@@ -549,6 +561,8 @@ class VibeFit(ExtraScreens, ShowBase):
             kg = [r - o for r, o in zip(self.board.kg, self.offsets)]
             i.total = sum(kg)
             i.x, i.y = self._cog(kg, i.total)
+            i.x *= self.sensitivity  # impostazione: bassa 0.7 / normale 1 / alta 1.4
+            i.y *= self.sensitivity
             i.present = i.total > 10
         else:
             i.x = i.y = i.total = 0.0

@@ -26,6 +26,7 @@ class Dance(Game):
     music = "dance"
     met = 5.0
     duration = 46.0
+    hud_fg = (1, 1, 1, 1)
 
     def setup(self):
         d = self.diff
@@ -113,7 +114,7 @@ class Dance(Game):
             pad = self.pads[c["dir"]]
             if -0.15 <= appr <= self.every:
                 # anello che si stringe sulla pedana fino al momento giusto
-                grow = 1.0 + 1.6 * max(min(appr / self.every, 1.0), 0.0)
+                grow = 1.0 + 0.9 * max(min(appr / self.every, 1.0), 0.0)
                 pad["ring"].setScale(1.5 * grow, 1.3 * grow, 0.05)
                 pad["ring"].setColor(*pad["col"], 0.6 if appr > 0 else 0.9)
                 pad["node"].setColor(*pad["col"], 1)

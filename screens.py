@@ -6,6 +6,8 @@ from panda3d.core import TextNode
 from games import GAMES
 
 GOALS = (15, 30, 60, 90, 120)  # obiettivi settimanali in minuti
+SENSITIVITY = ((0.7, "Bassa"), (1.0, "Normale"), (1.4, "Alta"))
+SENSITIVITY_NAMES = tuple(SENSITIVITY)
 DAYS_IT = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 HELP_BASICS = (
@@ -32,15 +34,28 @@ class ExtraScreens:
             ("Menu con la board", "Si'" if self.nav_board else "No", self._toggle_nav),
             ("Schermo intero (F11)", "Si'" if self.win.isFullscreen() else "No", self._toggle_fs),
             ("Difficolta'", diff, self._cycle_difficulty),
+            ("Sensibilita' inclinazione", dict(SENSITIVITY_NAMES)[round(self.sensitivity, 1)], self._cycle_sensitivity),
             ("Obiettivo settimanale", f"{self.weekly_goal} min", self._cycle_goal),
+            ("Calibrazione yoga", "Da rifare" if self.get_yoga_shift() is None else "Rifai", self._reset_yoga),
         )
         for i, (name, value, cmd) in enumerate(rows):
-            y = 0.58 - i * 0.14
+            y = 0.6 - i * 0.12
             self.label(name, (-0.1, 0, y - 0.01), 0.065, TextNode.ARight)
             self.button(value, (0.55, 0, y), cmd, scale=0.06, width=5)
         self.label("Menu con la board: inclinati avanti/indietro per scegliere, a destra (tenendo) per confermare.",
-                   (0, 0, -0.5), 0.045)
+                   (0, 0, -0.66), 0.045)
         self.button("Indietro", (1.15, 0, -0.85), self.show_menu, scale=0.06, width=4)
+
+    def _cycle_sensitivity(self):
+        values = [v for v, _ in SENSITIVITY]
+        i = values.index(round(self.sensitivity, 1)) if round(self.sensitivity, 1) in values else 1
+        self.sensitivity = values[(i + 1) % len(values)]
+        self.store.set_setting("sensitivity", self.sensitivity)
+        self.show_settings()
+
+    def _reset_yoga(self):
+        self.set_yoga_shift(None)  # alla prossima partita di yoga si ricalibra
+        self.show_settings()
 
     def _toggle_nav(self):
         self.nav_board = not self.nav_board

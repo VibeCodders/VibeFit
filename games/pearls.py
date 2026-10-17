@@ -29,7 +29,7 @@ class Pearls(Game):
         self.app.camera.setPos(0, -9.5, 14)
         self.app.camera.lookAt(0, 0.3, 0)
         L = self.loader
-        box(self.root, L, (40, 26, 0.2), (0.9, 0.82, 0.55), (0, 0, -0.5))  # sabbia
+        box(self.root, L, (40, 26, 0.2), (0.42, 0.7, 0.78), (0, 0, -0.5))  # fondale
         for i in range(14):  # alghe
             x = random.choice((-1, 1)) * random.uniform(XR + 0.5, XR + 4)
             y = random.uniform(-YR - 2, YR + 3)

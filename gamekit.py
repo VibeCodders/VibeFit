@@ -97,11 +97,15 @@ class Game:
         self.hud_score = app.label("", (-1.25, 0, 0.88), 0.08, TextNode.ALeft)
         self.hud_time = app.label("", (1.25, 0, 0.88), 0.08, TextNode.ARight)
         self.hud_msg = app.label("", (0, 0, 0.72), 0.07)
+        if self.hud_fg:  # scritte chiare per gli sfondi scuri
+            for lab in (self.hud_score, self.hud_time, self.hud_msg):
+                lab["text_fg"] = self.hud_fg
         from fx import Particles  # import qui: fx importa gamekit
         self.fx = Particles(app.loader, self.root)
         self.mini = app.mini_board() if self.show_mini and hasattr(app, "mini_board") else None
         self.setup()
 
+    hud_fg = None  # colore delle scritte a schermo (None = scuro di default)
     show_mini = True  # piccola board con il pallino del baricentro, in basso a sinistra
 
     def setup(self):

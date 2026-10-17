@@ -38,8 +38,9 @@ class Squat(Game):
         self.peng.setH(180)
         self.base = None
         self.cal_t = 0.0
-        self.cal_sum = 0.0
-        self.cal_n = 0
+        self.cal = []  # campioni del peso durante la calibrazione
+        self.th_eff = self.th
+        self.stable_t = 0.0
         self.state = "up"
         self.state_t = 0.0
         self.depth = 0.0
@@ -59,27 +60,35 @@ class Squat(Game):
     def update(self, dt, inp):
         if self.base is None:
             self.cal_t += dt
-            self.cal_sum += inp.total
-            self.cal_n += 1
+            self.cal.append(inp.total)
             self.hud_msg["text"] = "Resta in piedi, fermo..."
-            if self.cal_t >= 1.5 and self.cal_n:
-                self.base = max(self.cal_sum / self.cal_n, 1.0)
+            if self.cal_t >= 1.5 and self.cal:
+                mean = sum(self.cal) / len(self.cal)
+                std = (sum((v - mean) ** 2 for v in self.cal) / len(self.cal)) ** 0.5
+                self.base = max(mean, 1.0)
+                self.th_eff = max(self.th, 4 * std / self.base)  # mai sotto il rumore della board
                 self.app.sound.play("ok")
             return
         ratio = inp.total / self.base
         self.gauge.setZ(1.7 + clamp((ratio - 1) * 7, -1.6, 1.6))
         self.state_t += dt
+        if self.state == "up" and abs(ratio - 1) < self.th_eff * 0.5:  # la base segue le derive lente
+            self.stable_t += dt
+            if self.stable_t > 1.0:
+                self.base += (inp.total - self.base) * min(1.0, 0.5 * dt)
+        else:
+            self.stable_t = 0.0
         if self.state == "up":
             self.hud_msg["text"] = f"Ripetizioni: {self.reps}  -  scendi!"
-            if ratio < 1 - self.th:
+            if ratio < 1 - self.th_eff:
                 self.state, self.state_t, self.depth_target = "down", 0.0, 1.0
         elif self.state == "down":
             self.hud_msg["text"] = "Giu'... ora risali!"
-            if ratio > 1 + self.th:
+            if ratio > 1 + self.th_eff:
                 self.state, self.state_t, self.depth_target = "push", 0.0, 0.4
         elif self.state == "push":
             self.hud_msg["text"] = "Risali in piedi"
-            if abs(ratio - 1) < self.th * 0.6:
+            if abs(ratio - 1) < self.th_eff * 0.6:
                 self.reps += 1
                 self.score += 100
                 self.app.sound.play("rep")

@@ -57,3 +57,22 @@ def run(game, seconds, feed, dt=1 / 60):
         game.tick(dt, inp)
         t += dt
     return game
+
+
+class CalibratableApp(FakeApp):
+    """App finta che ricorda la calibrazione dello yoga."""
+
+    def __init__(self, base, shift=None):
+        super().__init__(base)
+        self.shift = shift
+
+    def get_yoga_shift(self):
+        return self.shift
+
+    def set_yoga_shift(self, v):
+        self.shift = v
+
+
+@pytest.fixture
+def cal_app(base):
+    return CalibratableApp(base)

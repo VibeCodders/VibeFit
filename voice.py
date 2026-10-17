@@ -28,6 +28,9 @@ BASE = {
     "next": "Prossimo esercizio.",
     "hold": "Tieni la posizione!",
     "stepon": "Sali sulla board.",
+    "cal_left": "Calibrazione dello yoga: appoggia tutto il peso sulla gamba sinistra, alzando l'altra.",
+    "cal_right": "Ora appoggia tutto il peso sulla gamba destra.",
+    "cal_done": "Calibrazione completata.",
 }
 
 PS_SCRIPT = r"""
