@@ -94,26 +94,29 @@ def scan(radio):
 def main():
     radio, rinfo = find_radio()
     print(f"Adattatore: {rinfo.szName} ({fmt(rinfo.address)})")
+    bt.BluetoothAuthenticateDevice.argtypes = [wintypes.HWND, wintypes.HANDLE,
+                                               ctypes.POINTER(DeviceInfo), ctypes.c_void_p, wintypes.ULONG]
     board = None
-    for attempt in range(1, 6):
-        print(f"Ricerca {attempt}/5 (tieni premuto SYNC)...")
+    for attempt in range(1, 9):
+        print(f"Ricerca {attempt}/8 (premi SYNC adesso e tienilo premuto)...")
         for d in scan(radio):
-            print(f"  - {d.szName!r} {fmt(d.Address)}")
-            if any(n in d.szName for n in BOARD_NAMES):
-                board = d
+            if not any(n in d.szName for n in BOARD_NAMES):
+                continue
+            print(f"Trovata: {d.szName} {fmt(d.Address)}")
+            # SYNC: PIN = indirizzo del PC in little-endian; in alternativa indirizzo della board
+            for label, addr in (("PC", rinfo.address), ("board", d.Address)):
+                pin = (ctypes.c_ubyte * 6)(*addr.to_bytes(6, "little"))
+                res = bt.BluetoothAuthenticateDevice(None, radio, ctypes.byref(d), ctypes.byref(pin), 6)
+                print(f"  PIN {label}: codice {res}")
+                if res == 0:
+                    board = d
+                    break
+            if board:
+                break
         if board:
             break
     if not board:
-        raise SystemExit("Balance Board non trovata. Rimuovi eventuali vecchi accoppiamenti e riprova.")
-
-    print(f"Trovata: {board.szName} {fmt(board.Address)}")
-    # Accoppiamento via SYNC: PIN = indirizzo del PC, 6 byte in ordine little-endian
-    pin = (ctypes.c_ubyte * 6)(*rinfo.address.to_bytes(6, "little"))
-    bt.BluetoothAuthenticateDevice.argtypes = [wintypes.HWND, wintypes.HANDLE,
-                                               ctypes.POINTER(DeviceInfo), ctypes.c_void_p, wintypes.ULONG]
-    res = bt.BluetoothAuthenticateDevice(None, radio, ctypes.byref(board), ctypes.byref(pin), 6)
-    if res != 0:
-        raise SystemExit(f"Accoppiamento fallito (codice {res}).")
+        raise SystemExit("Accoppiamento non riuscito. Riprova premendo SYNC subito dopo l'avvio.")
     print("Accoppiata. Abilito il servizio HID...")
     guid = GUID(HID_SERVICE[0], HID_SERVICE[1], HID_SERVICE[2], (ctypes.c_ubyte * 8)(*HID_SERVICE[3]))
     res = bt.BluetoothSetServiceState(radio, ctypes.byref(board), ctypes.byref(guid), 1)
